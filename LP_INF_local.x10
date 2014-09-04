@@ -61,19 +61,20 @@ public class LP_INF_local {
         xpregel.updateInEdge();
 
         // for each iteration
-        xpregel.iterate[GrowableMemory[Path],Double]((ctx :VertexContext[GrowableMemory[Path], Double, Message, Double], messages :MemoryChunk[Message]) => {
+          xpregel.iterate[Message,Double]((ctx :VertexContext[GrowableMemory[Path], Double, Message, Double], messages :MemoryChunk[Message]) => {
+        //xpregel.iterate[Message,Double]((ctx :VertexContext[GrowableMemory[Path], Double, Message, Double], messages :MemoryChunk[Message]) => {
             var neighbours :GrowableMemory[Path] = new GrowableMemory[Path]();
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>
             //also, send paths to all vertices
             if(ctx.superstep() == 0){
-                for(id in ctx.outEdgesId().range()) {
+                for(id in ctx.outEdgesId()) {
                     val s = Step(true,id);
                     val p = Path();
                     p.path(0) = s;
                     neighbours.add(p);
                 }
-                for(id in ctx.inEdgesId().range()) {
+                for(id in ctx.inEdgesId()) {
                     val s = Step(false,id);
                     val p = Path();
                     p.path(0) = s;
@@ -86,8 +87,6 @@ public class LP_INF_local {
             //second superstep: read the messages, extend the paths with the information arriving
             if(ctx.superstep() == 1){
                 val firstStepNeighbors  = ctx.value();
-                //val firstStepNeighbors  = new GrowableMemory[Path]();
-                //firstStepNeighbors = ctx.value();
                 //For each message recieved
                 for(i in messages.range()){
                     val messageId:Long = messages(i).id;
@@ -117,15 +116,23 @@ public class LP_INF_local {
             }
 
 
+
 	    },
+
+
+//null as (MemoryChunk[Double] => Double),
+null,
+(superstep :Int, someValue :Double) => (superstep >= 2));
+
         //I'm not sure what could I use the aggregator for.
+        //(dummy :MemoryChunk[Double]) => Double,
         //null,
-	    (dummy :MemoryChunk[Double]) => {},
+	    //(dummy :MemoryChunk[Double]) => {},
         //Combiner CombinePaths should take various Message and append them into the same ... is it possible without losing the Ids??
         //The vertex could add its Id to every path before sending it to the combiner. But this increases the size of messages dramatically.
 	    //(paths :MemoryChunk[Message]) => combinePaths(paths),
         //null,
-        (superstep :Int, someValue :Long) => (superstep >= 2));
+        //(superstep :Int, someValue :Long) => (superstep >= 2));
     }
 
     static def printNeighbourhood(m:Message){
