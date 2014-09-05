@@ -29,7 +29,7 @@ public class LP_INF_local {
         }
     }
 
-    public static struct Path {
+    public static struct Path { 
         //A path is a sequence of steps
         val path: MemoryChunk[Step];
         public def this(){
@@ -39,10 +39,10 @@ public class LP_INF_local {
 
     public static struct Step {
         //Direction determines if the node is a descendant (0) or an ancestor (1)
-        val direction: Boolean;
+        val direction: x10.lang.Boolean;
         //Id of node destination of step
         val targetId: x10.lang.Long;
-        public def this(d: Boolean, t: x10.lang.Long) {
+        public def this(d: x10.lang.Boolean, t: x10.lang.Long) {
             direction = d;
             targetId = t;
         }
@@ -52,36 +52,49 @@ public class LP_INF_local {
         val team = Team.WORLD;
 
         // load graph from CSV file
-        val graph = Graph.make(CSV.read(args(0),[Type.Long as Int, Type.Long, Type.Double],true));
+        val graph = Graph.make(CSV.read(args(0),[Type.Long as Int, Type.Long, Type.Byte],true));
         // create sparse matrix
-        val csr = graph.createDistSparseMatrix[Double](Config.get().dist1d(), "weight", true, true);
+        val csr = graph.createDistSparseMatrix[Byte](Config.get().dist1d(), "weight", true, true);
 
         // create xpregel instance
-        val xpregel = XPregelGraph.make[GrowableMemory[Path], Double](csr);
+        val xpregel = XPregelGraph.make[GrowableMemory[Path], Byte](csr);
         xpregel.updateInEdge();
 
-        // for each iteration
-          xpregel.iterate[Message,Double]((ctx :VertexContext[GrowableMemory[Path], Double, Message, Double], messages :MemoryChunk[Message]) => {
-        //xpregel.iterate[Message,Double]((ctx :VertexContext[GrowableMemory[Path], Double, Message, Double], messages :MemoryChunk[Message]) => {
+        xpregel.iterate[Message,Double]((ctx :VertexContext[GrowableMemory[Path], Byte, Message, Double], messages :MemoryChunk[Message]) => {
             var neighbours :GrowableMemory[Path] = new GrowableMemory[Path]();
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
-	        //and all out-edges as path with one step: <1,Id>
-            //also, send paths to all vertices
+	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
-                for(id in ctx.outEdgesId()) {
-                    val s = Step(true,id);
-                    val p = Path();
-                    p.path(0) = s;
-                    neighbours.add(p);
+                val tupleOut = ctx.outEdges();
+                Console.OUT.println(ctx.id() + " has # of OUT id edges:" + ctx.outEdgesId().size());
+                Console.OUT.println(ctx.id() + " has # of OUT val edges:" + ctx.outEdgesValue().size());
+                val idsOut = tupleOut.get1();
+                val weightsOut = tupleOut.get2();
+                for(idx in weightsOut.range()) {
+                    Console.OUT.println("out:"+idsOut(idx));
+                    if (weightsOut(idx).compareTo(1) == 0){
+                        val s = Step(true,idsOut(idx));
+                        val p = Path();
+                        p.path(0) = s;
+                        neighbours.add(p);
+                    }
+                    else Console.OUT.println("out with a 0:"+idsOut(idx));
                 }
-                for(id in ctx.inEdgesId()) {
-                    val s = Step(false,id);
-                    val p = Path();
-                    p.path(0) = s;
-                    neighbours.add(p);
-                }
+                    Console.OUT.println(ctx.id() + " has # of IN ids:" + ctx.inEdgesId().size());
+                    //if(ctx.inEdgesId().size()>0)Console.OUT.println(ctx.id() + " " + ctx.inEdgesId()(0));
+                    Console.OUT.println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
+                //for(idx in ctx.inEdgesValue().range()) {
+                //    Console.OUT.println("in:"+ctx.inEdgesId()(idx));
+                //    if (ctx.inEdgesValue()(idx).compareTo(1) == 0){
+                //        val s = Step(false,ctx.inEdgesId()(idx));
+                //        val p = Path();
+                //        p.path(0) = s;
+                //        neighbours.add(p);
+                //    }
+                //    else Console.OUT.println("in with a 0:"+ctx.inEdgesId()(idx));
+                //}
                 ctx.setValue(neighbours);
-                val m :Message = Message(ctx.realId(),neighbours);
+                val m :Message = Message(ctx.id(),neighbours);
                 ctx.sendMessageToAllNeighbors(m);
              }
             //second superstep: read the messages, extend the paths with the information arriving
@@ -108,7 +121,7 @@ public class LP_INF_local {
                 ctx.setValue(neighbours);
 
                 //PRINT FOR DEBUGGING
-                val m :Message = Message(ctx.realId(),neighbours);
+                val m :Message = Message(ctx.id(),neighbours);
                 printNeighbourhood(m);
                 //END PRINT FOR DEBUGGING    
 
@@ -158,3 +171,16 @@ null,
     //}
 
 }
+
+
+
+//            var iter:Long = 0;
+//            val sb = new SStringBuilder();
+//            for(i in result.range()) {
+//                sb.add(result(i)).add("\n");
+//            }
+//            val fw = new FileWriter(args(2), FileMode.Create);
+//            fw.write(sb.result().bytes());
+//            fw.close();
+//            return true;
+
