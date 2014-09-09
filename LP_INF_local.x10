@@ -1,8 +1,8 @@
 /**
- * Calculates the local INF score of all vertex
+ * Calculates the local INF score of all vertices
  *
  * V (vertices) stores a list of paths to other vertices of distance fixed: GrowableMemory[Path],
- * as well as a list of Ids of those vertices candidates for LP (distance to vertex > 1 || weight of edge to vertex == 0): GrowableMemory[Long]
+ *   as well as a list of Ids of those vertices candidates for LP (distance to vertex > 1 || weight of edge to vertex == 0): GrowableMemory[Long]
  * E (edges) store a boolean, 1 if the edge is to be used for training, 0 if the edge is to be used for test: Byte
  * M (messages) must pass lists of paths from one vertex to another: GrowableMemory[Path] as well as the source vertex Id: Long
  * A (aggregator) have no purpose so far: Double
@@ -56,9 +56,9 @@ public class LP_INF_local {
     }
 
     public static struct Step {
-        //Direction determines if the node is a descendant (0) or an ancestor (1)
+        //Direction determines if the node is a descendant (0, a vertex pointing to self) or an ancestor (1, a vertex self points to)
         val direction: x10.lang.Boolean;
-        //Id of node destination of step
+        //Id of vertex related though step
         val targetId: x10.lang.Long;
         public def this(d: x10.lang.Boolean, t: x10.lang.Long) {
             direction = d;
@@ -157,18 +157,15 @@ Console.OUT.println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
                 //TODO: for all t in targets, che
                 //TODO: numNodes*(numNodes-1)-|targets_clean| have weight 0.
 
-                ctx.setValue(secondStepRes);
-
 //PRINT FOR DEBUGGING
 //val m :Message = Message(ctx.id(),neighbours);
 //printNeighbourhood(m);
 //END PRINT FOR DEBUGGING    
 
-
+                ctx.setValue(secondStepRes);
                 ctx.voteToHalt();
             }
 	    },
-
         //I'm not sure what could I use the aggregator for.
         null,
         //Combiner CombinePaths should take various Message and append them into the same ... is it possible without losing the Ids??
