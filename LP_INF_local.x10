@@ -1,9 +1,10 @@
 /**
  * Calculates the local INF score of all vertex
  *
- * V (vertices) stores a list of paths to other vertices of distance fixed: GrowableMemory[Path]
- * E (edges) do not store data: Double
- * M (messages) must pass lists of paths from one vertex to another: GrowableMemory[Path]
+ * V (vertices) stores a list of paths to other vertices of distance fixed: GrowableMemory[Path],
+ * as well as a list of Ids of those vertices candidates for LP (distance to vertex > 1 || weight of edge to vertex == 0): GrowableMemory[Long]
+ * E (edges) store a boolean, 1 if the edge is to be used for training, 0 if the edge is to be used for test: Byte
+ * M (messages) must pass lists of paths from one vertex to another: GrowableMemory[Path] as well as the source vertex Id: Long
  * A (aggregator) have no purpose so far: Double
  */
 
