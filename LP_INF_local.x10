@@ -58,7 +58,9 @@ public class LP_INF_local {
 
         // create xpregel instance
         val xpregel = XPregelGraph.make[GrowableMemory[Path], Byte](csr);
-        xpregel.updateInEdge();
+	xpregel.setLogPrinter(Console.ERR, 0);
+
+        xpregel.updateInEdgeAndValue();
 
         xpregel.iterate[Message,Double]((ctx :VertexContext[GrowableMemory[Path], Byte, Message, Double], messages :MemoryChunk[Message]) => {
             var neighbours :GrowableMemory[Path] = new GrowableMemory[Path]();
