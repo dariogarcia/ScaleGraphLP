@@ -14,11 +14,12 @@ import org.scalegraph.graph.Graph;
 import org.scalegraph.io.CSV;
 import org.scalegraph.id.Type;
 import org.scalegraph.Config;
+import org.scalegraph.test.AlgorithmTest;
 
 import org.scalegraph.xpregel.VertexContext;
 import org.scalegraph.xpregel.XPregelGraph;
 
-public class LP_INF_local {
+public class LP_INF_local extends AlgorithmTest {
 
     public static struct Message{
         val id:Long;
@@ -49,12 +50,16 @@ public class LP_INF_local {
     }
         
     public static def main(args:Array[String](1)) {
+	new LP_INF_local().execute(args);
+    }
+
+    public def run(args :Array[String](1), g :Graph): Boolean {
         val team = Team.WORLD;
 
         // load graph from CSV file
         val graph = Graph.make(CSV.read(args(0),[Type.Long as Int, Type.Long, Type.Byte],true));
         // create sparse matrix
-        val csr = graph.createDistSparseMatrix[Byte](Config.get().dist1d(), "weight", true, true);
+        val csr = graph.createDistSparseMatrix[Byte](Config.get().dist1d(), "weight", true, false);
 
         // create xpregel instance
         val xpregel = XPregelGraph.make[GrowableMemory[Path], Byte](csr);
@@ -68,8 +73,8 @@ public class LP_INF_local {
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
                 val tupleOut = ctx.outEdges();
-                Console.OUT.println(ctx.id() + " has # of OUT id edges:" + ctx.outEdgesId().size());
-                Console.OUT.println(ctx.id() + " has # of OUT val edges:" + ctx.outEdgesValue().size());
+                println(ctx.id() + "("+ctx.realId()+") has # of OUT id edges:" + ctx.outEdgesId().size());
+                println(ctx.id() + " has # of OUT val edges:" + ctx.outEdgesValue().size());
                 val idsOut = tupleOut.get1();
                 val weightsOut = tupleOut.get2();
                 for(idx in weightsOut.range()) {
@@ -80,20 +85,20 @@ public class LP_INF_local {
                         p.path(0) = s;
                         neighbours.add(p);
                     }
-                    else Console.OUT.println("out with a 0:"+idsOut(idx));
+                    else println("out with a 0:"+idsOut(idx));
                 }
-                    Console.OUT.println(ctx.id() + " has # of IN ids:" + ctx.inEdgesId().size());
+                    println(ctx.id() + " has # of IN ids:" + ctx.inEdgesId().size());
                     //if(ctx.inEdgesId().size()>0)Console.OUT.println(ctx.id() + " " + ctx.inEdgesId()(0));
-                    Console.OUT.println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
+                    println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
                 //for(idx in ctx.inEdgesValue().range()) {
-                //    Console.OUT.println("in:"+ctx.inEdgesId()(idx));
+                //    println("in:"+ctx.inEdgesId()(idx));
                 //    if (ctx.inEdgesValue()(idx).compareTo(1) == 0){
                 //        val s = Step(false,ctx.inEdgesId()(idx));
                 //        val p = Path();
                 //        p.path(0) = s;
                 //        neighbours.add(p);
                 //    }
-                //    else Console.OUT.println("in with a 0:"+ctx.inEdgesId()(idx));
+                //    else println("in with a 0:"+ctx.inEdgesId()(idx));
                 //}
                 ctx.setValue(neighbours);
                 val m :Message = Message(ctx.id(),neighbours);
@@ -148,16 +153,17 @@ null,
 	    //(paths :MemoryChunk[Message]) => combinePaths(paths),
         //null,
         //(superstep :Int, someValue :Long) => (superstep >= 2));
+	return true;
     }
 
     static def printNeighbourhood(m:Message){
-        Console.OUT.println("--------------");
-        Console.OUT.println("Neighbourhood of node with Id:"+m.id);
+        println("--------------");
+        println("Neighbourhood of node with Id:"+m.id);
         for(p in m.neighbours.range()){
             for(s in m.neighbours(p).path.range()){
-                Console.OUT.println(m.neighbours(p).path(s).direction + " " + m.neighbours(p).path(s).targetId);
+                println(m.neighbours(p).path(s).direction + " " + m.neighbours(p).path(s).targetId);
             }
-        Console.OUT.println("--------------");
+        println("--------------");
         }
     }
 
