@@ -151,7 +151,7 @@ println(ctx.id() + " is reading message from "+ mess.id_sender);
                             //Once found, create as many 2 steps paths as neighbors within the message
                             for(rangeNewSteps in mess.neighbours.range()){
                                 //If self, skip!
-                                if(mess.neighbours(rangeNewSteps).targetId == vtx.id()) continue;
+                                if(mess.neighbours(rangeNewSteps).targetId == ctx.id()) continue;
                                 val s1 :Step = Step(mess.neighbours(rangeNewSteps).direction, mess.neighbours(rangeNewSteps).targetId);
                                 neighbours.steps(rangeCurrentSteps).neighbors.add(s1);
                                 targets.add(mess.neighbours(rangeNewSteps).targetId);
