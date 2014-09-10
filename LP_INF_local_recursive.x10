@@ -16,16 +16,18 @@ import org.scalegraph.io.CSV;
 import org.scalegraph.id.Type;
 import org.scalegraph.Config;
 
+import org.scalegraph.test.STest;
+
 import org.scalegraph.xpregel.VertexContext;
 import org.scalegraph.xpregel.XPregelGraph;
 
-public class LP_INF_local_recursive {
+public class LP_INF_local_recursive extends STest {
 
     public static struct Message{
-        val id:Long;
+        val id_sender:Long;
         val neighbours:GrowableMemory[Step];
         public def this(i: Long, n: GrowableMemory[Step]){
-            id = i;
+            id_sender = i;
             neighbours = n;
         }
     }
@@ -66,25 +68,32 @@ public class LP_INF_local_recursive {
     }
         
     public static def main(args:Array[String](1)) {
+        new LP_INF_local_recursive().run(args);
+    }
+
+    public def run(args :Array[String](1)): Boolean {
         val team = Team.WORLD;
 
         // load graph from CSV file
         val graph = Graph.make(CSV.read(args(0),[Type.Long as Int, Type.Long, Type.Byte],true));
         // create sparse matrix
-        val csr = graph.createDistSparseMatrix[Byte](Config.get().dist1d(), "weight", true, true);
+        val csr = graph.createDistSparseMatrix[Byte](Config.get().dist1d(), "weight", true, false);
 
         // create xpregel instance
         val xpregel = XPregelGraph.make[VertexData, Byte](csr);
-        xpregel.updateInEdge();
+        
+        xpregel.setLogPrinter(Console.ERR, 0);
+        xpregel.updateInEdgeAndValue();
 
         xpregel.iterate[Message,Double]((ctx :VertexContext[VertexData, Byte, Message, Double], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
-Console.OUT.println(ctx.id() + " has # of OUT id edges:" + ctx.outEdgesId().size());
-Console.OUT.println(ctx.id() + " has # of OUT val edges:" + ctx.outEdgesValue().size());
-Console.OUT.println(ctx.id() + " has # of IN ids:" + ctx.inEdgesId().size());
-Console.OUT.println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
+//println(ctx.id() +" ("+ctx.realId()+") has # of OUT id edges:" + ctx.outEdgesId().size());
+//println(ctx.id() + " has # of OUT id edges:" + ctx.outEdgesId().size());
+//println(ctx.id() + " has # of OUT val edges:" + ctx.outEdgesValue().size());
+//println(ctx.id() + " has # of IN ids:" + ctx.inEdgesId().size());
+//Console.OUT.println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
                 var neighbours :GrowableMemory[Step] = new GrowableMemory[Step]();
                 //Load all outgoing edges of vertex
                 val tupleOut = ctx.outEdges();
@@ -94,7 +103,7 @@ Console.OUT.println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
                 var testNeighs :GrowableMemory[Long] = new GrowableMemory[Long]();
                 //For each vertex connected through an outgoing edges
                 for(idx in weightsOut.range()) {
-//Console.OUT.println("out:"+idsOut(idx));
+println(ctx.id() + " points to "+idsOut(idx));
                     //If the vertex is connected through an edges with weight = 1
                     if (weightsOut(idx).compareTo(1) == 0){
                         //Add the vertex id to the list of one path neighbors
@@ -102,19 +111,21 @@ Console.OUT.println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
                         neighbours.add(s);
                     }
                     //Otherwise add the vertex as a test neighbour
-                    else testNeighs.add(idsOut(idx));
-//else Console.OUT.println("out with a 0:"+idsOut(idx));
+                    else {
+                        testNeighs.add(idsOut(idx));
+println("  which is a test link!");
+                    }
                 }
                 //For each vertex connected through an ingoing edges
                 for(idx in ctx.inEdgesValue().range()) {
-//Console.OUT.println("in:"+ctx.inEdgesId()(idx));
+println(ctx.id() + " is pointed by "+ctx.inEdgesId()(idx));
                     //If the vertex is connected through an edges with weight = 1
                     if (ctx.inEdgesValue()(idx).compareTo(1) == 0){
                         //Add the vertex id to the list of one path neighbors
                         val s = Step(false,ctx.inEdgesId()(idx));
                         neighbours.add(s);
                     }
-//else Console.OUT.println("in with a 0:"+ctx.inEdgesId()(idx));
+else print(" which is a test link!");
                 }
                 //Save the built list of one step neighbors
                 val firstStepRes:VertexData = new VertexData(testNeighs,neighbours);
@@ -131,13 +142,16 @@ Console.OUT.println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
                 val currentSteps:GrowableMemory[Step]  = ctx.value().steps;
                 //For each message recieved
                 for(mess in messages){
-                    val messageId:Long = mess.id;
+println(ctx.id() + " is reading message from "+ mess.id_sender);
+                    val messageId:Long = mess.id_sender;
                     //Seek the sender in the currently stored steps
                     for(rangeCurrentSteps in currentSteps.range()){
                         val currentStep = currentSteps(rangeCurrentSteps);
                         if(currentStep.targetId == messageId){
                             //Once found, create as many 2 steps paths as neighbors within the message
                             for(rangeNewSteps in mess.neighbours.range()){
+                                //If self, skip!
+                                if(mess.neighbours(rangeNewSteps).targetId == vtx.id()) continue;
                                 val s1 :Step = Step(mess.neighbours(rangeNewSteps).direction, mess.neighbours(rangeNewSteps).targetId);
                                 neighbours.steps(rangeCurrentSteps).neighbors.add(s1);
                                 targets.add(mess.neighbours(rangeNewSteps).targetId);
@@ -155,7 +169,7 @@ Console.OUT.println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
                     for(rangeCurrentSteps in currentSteps.range()){
                         val currentStep = currentSteps(rangeCurrentSteps);
                         if(target == currentStep.targetId){
-Console.OUT.println(ctx.id() + " skips target " +target+ " because it is already directly connected");
+println(ctx.id() + " skips target " +target+ " because it is already directly connected");
                             alreadyExistent = true;
                             break;
                         }
@@ -164,14 +178,14 @@ Console.OUT.println(ctx.id() + " skips target " +target+ " because it is already
                     for(rangeTPs in ctx.value().testCandidates.range()){
                         val currentTP = ctx.value().testCandidates(rangeTPs);
                         if(target == currentTP){
-Console.OUT.println(ctx.id() + " saves target " +target+ " as TP");
+println(ctx.id() + " saves target " +target+ " as TP");
                             isTP = true;
                             actualTPTargets.add(target);
                             break;
                         }
                     }
                     if (!alreadyExistent) {
-Console.OUT.println(ctx.id() + " saves target " +target+ " as FP");
+println(ctx.id() + " saves target " +target+ " as FP");
                             actualTargets.add(target);
                     }
                 }
@@ -194,11 +208,12 @@ Console.OUT.println(ctx.id() + " saves target " +target+ " as FP");
         //The vertex could add its Id to every path before sending it to the combiner. But this increases the size of messages dramatically.
 	    //(paths :MemoryChunk[Message]) => combinePaths(paths),
         (superstep :Int, someValue :Double) => (superstep >= 2));
+        return true;
     }
 
     static def printNeighbourhood(m:Message){
         Console.OUT.println("--------------");
-        Console.OUT.println("Neighbourhood of node with Id:"+m.id);
+        Console.OUT.println("Neighbourhood of node with Id:"+m.id_sender);
         for(p in m.neighbours.range()){
             //for(s in m.neighbours(p).path.range()){
             //    //Console.OUT.println(m.neighbours(p).path(s).direction + " " + m.neighbours(p).path(s).targetId);
