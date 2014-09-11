@@ -1,4 +1,4 @@
-/**
+/*
  * Calculates the local INF score of all vertices
  *
  * V (vertices) stores a list of paths to other vertices of distance fixed: GrowableMemory[Path],
@@ -23,6 +23,16 @@ import org.scalegraph.xpregel.XPregelGraph;
 
 public class LP_INF_local_recursive extends STest {
 
+
+    public static struct PredictedLink{
+        val id:Long;
+        val TP:Boolean;
+        public def this(i: Long, t: Boolean){
+            id = i;
+            TP = t;
+        }
+    }
+    
     public static struct Message{
         val id_sender:Long;
         val neighbours:GrowableMemory[Step];
@@ -36,15 +46,21 @@ public class LP_INF_local_recursive extends STest {
         val steps: GrowableMemory[Step];
         val testCandidates: GrowableMemory[Long];
         val candidates: GrowableMemory[Long];
+        val Descendants: Long;
+        val Ancestors: Long;
         public def this(){
             steps = new GrowableMemory[Step]();
             testCandidates = new GrowableMemory[Long]();
             candidates = new GrowableMemory[Long]();
+            Descendants = 0;
+            Ancestors = 0;
         }
-        public def this(test: GrowableMemory[Long], st: GrowableMemory[Step]){
+        public def this(test: GrowableMemory[Long], st: GrowableMemory[Step], d: Long, a: Long){
             steps = st;
             testCandidates = test;
             candidates = new GrowableMemory[Long]();
+            Descendants = d;
+            Ancestors = a;
         }
     }
 
@@ -73,28 +89,22 @@ public class LP_INF_local_recursive extends STest {
 
     public def run(args :Array[String](1)): Boolean {
         val team = Team.WORLD;
-
         // load graph from CSV file
         val graph = Graph.make(CSV.read(args(0),[Type.Long as Int, Type.Long, Type.Byte],true));
         // create sparse matrix
         val csr = graph.createDistSparseMatrix[Byte](Config.get().dist1d(), "weight", true, false);
-
         // create xpregel instance
         val xpregel = XPregelGraph.make[VertexData, Byte](csr);
-        
         xpregel.setLogPrinter(Console.ERR, 0);
+        xpregel.updateInEdge();
         xpregel.updateInEdgeAndValue();
 
         xpregel.iterate[Message,Double]((ctx :VertexContext[VertexData, Byte, Message, Double], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
-//println(ctx.id() +" ("+ctx.realId()+") has # of OUT id edges:" + ctx.outEdgesId().size());
-//println(ctx.id() + " has # of OUT id edges:" + ctx.outEdgesId().size());
-//println(ctx.id() + " has # of OUT val edges:" + ctx.outEdgesValue().size());
-//println(ctx.id() + " has # of IN ids:" + ctx.inEdgesId().size());
-//Console.OUT.println(ctx.id() + " has # of IN val:" + ctx.inEdgesValue().size());
                 var neighbours :GrowableMemory[Step] = new GrowableMemory[Step]();
+                var ancestors :Long = 0; var descendants :Long = 0;
                 //Load all outgoing edges of vertex
                 val tupleOut = ctx.outEdges();
                 val idsOut = tupleOut.get1();
@@ -103,36 +113,34 @@ public class LP_INF_local_recursive extends STest {
                 var testNeighs :GrowableMemory[Long] = new GrowableMemory[Long]();
                 //For each vertex connected through an outgoing edges
                 for(idx in weightsOut.range()) {
-println(ctx.id() + " points to "+idsOut(idx));
                     //If the vertex is connected through an edges with weight = 1
                     if (weightsOut(idx).compareTo(1) == 0){
+                        ancestors++;
                         //Add the vertex id to the list of one path neighbors
                         val s = Step(true,idsOut(idx));
                         neighbours.add(s);
                     }
                     //Otherwise add the vertex as a test neighbour
-                    else {
-                        testNeighs.add(idsOut(idx));
-println("  which is a test link!");
-                    }
+                    else testNeighs.add(idsOut(idx));
                 }
                 //For each vertex connected through an ingoing edges
                 for(idx in ctx.inEdgesValue().range()) {
-println(ctx.id() + " is pointed by "+ctx.inEdgesId()(idx));
                     //If the vertex is connected through an edges with weight = 1
                     if (ctx.inEdgesValue()(idx).compareTo(1) == 0){
+                        descendants++;
                         //Add the vertex id to the list of one path neighbors
                         val s = Step(false,ctx.inEdgesId()(idx));
                         neighbours.add(s);
                     }
-else print(" which is a test link!");
                 }
                 //Save the built list of one step neighbors
-                val firstStepRes:VertexData = new VertexData(testNeighs,neighbours);
+                val firstStepRes:VertexData = new VertexData(testNeighs,neighbours,descendants,ancestors);
                 ctx.setValue(firstStepRes);
                 val m :Message = Message(ctx.id(),neighbours);
                 //Send the list to all neighbors
-                ctx.sendMessageToAllNeighbors(m);
+                //ctx.sendMessageToAllNeighbors(m);
+                for(idx in ctx.inEdgesId()) ctx.sendMessage(idx,m);
+                for(idx in idsOut.range())  ctx.sendMessage(idsOut(idx),m);
             }
             //Second superstep: read the messages, extend the steps with the information arriving
             if(ctx.superstep() == 1){
@@ -142,7 +150,6 @@ else print(" which is a test link!");
                 val currentSteps:GrowableMemory[Step]  = ctx.value().steps;
                 //For each message recieved
                 for(mess in messages){
-println(ctx.id() + " is reading message from "+ mess.id_sender);
                     val messageId:Long = mess.id_sender;
                     //Seek the sender in the currently stored steps
                     for(rangeCurrentSteps in currentSteps.range()){
@@ -154,42 +161,64 @@ println(ctx.id() + " is reading message from "+ mess.id_sender);
                                 if(mess.neighbours(rangeNewSteps).targetId == ctx.id()) continue;
                                 val s1 :Step = Step(mess.neighbours(rangeNewSteps).direction, mess.neighbours(rangeNewSteps).targetId);
                                 neighbours.steps(rangeCurrentSteps).neighbors.add(s1);
-                                targets.add(mess.neighbours(rangeNewSteps).targetId);
+                                var found :Boolean = false;
+                                //Unless already added, add target
+                                for(target_idx in targets.range()) if(targets(target_idx)==mess.neighbours(rangeNewSteps).targetId) found = true;
+                                if(!found) targets.add(mess.neighbours(rangeNewSteps).targetId);
                             }
                         }
                     }
                 }
-                //TODO: for all t in targets, if t in firstneighbours and weight = 1, remove t from targets. If weight = 0 mark a TP.
+                //For each target: If edge exists remove from targets. Else store and id and if TP.
+                var predictions :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
                 for (target_idx in targets.range()){
                     var alreadyExistent :Boolean = false;
-                    var isTP :Boolean = false;
                     val target = targets(target_idx);
-                    var actualTargets :GrowableMemory[Long] = new GrowableMemory[Long]();
-                    var actualTPTargets :GrowableMemory[Long] = new GrowableMemory[Long]();
+//TODO check only if outgoing edge exists! 
                     for(rangeCurrentSteps in currentSteps.range()){
                         val currentStep = currentSteps(rangeCurrentSteps);
-                        if(target == currentStep.targetId){
-println(ctx.id() + " skips target " +target+ " because it is already directly connected");
+                        if((target == currentStep.targetId) & currentStep.direction){
                             alreadyExistent = true;
                             break;
                         }
                     }
                     if (alreadyExistent) continue;
+                    var isTP :Boolean = false;
                     for(rangeTPs in ctx.value().testCandidates.range()){
                         val currentTP = ctx.value().testCandidates(rangeTPs);
                         if(target == currentTP){
-println(ctx.id() + " saves target " +target+ " as TP");
                             isTP = true;
-                            actualTPTargets.add(target);
                             break;
                         }
                     }
-                    if (!alreadyExistent) {
-println(ctx.id() + " saves target " +target+ " as FP");
-                            actualTargets.add(target);
-                    }
+                    predictions.add(new PredictedLink(target,isTP));
                 }
-                //Is there a structure in x10 or scalegraph it is is fast to search??
+                //For each target, calculate the number of paths and their type
+                for(current in predictions.range()){
+                    val currentId = predictions(current).id;
+//println("-"+ctx.id()+"-"+currentId);
+                    var DD :Long = 0; var DA:Long = 0; var AD:Long = 0; var AA:Long = 0;
+                    //Seek number of paths of each type
+                    for(rangeFirstStep in neighbours.steps.range()){
+                        val firstStep = neighbours.steps(rangeFirstStep);
+                        var firstDirection :Boolean = firstStep.direction;
+                        for(rangeSecondStep in firstStep.neighbors.range()){
+                            val secondStep = firstStep.neighbors(rangeSecondStep);
+                            //Found a path
+                            if(secondStep.targetId == currentId){
+                                if(secondStep.direction  &  firstDirection) AA++;
+                                if(!secondStep.direction &  firstDirection) AD++;
+                                if(secondStep.direction  & !firstDirection) DA++;
+                                if(!secondStep.direction & !firstDirection) DD++;
+                            }
+                        }
+                    }
+println("-"+ctx.id()+"-Descendants:"+ neighbours.Descendants);
+println("-"+ctx.id()+"-Ancestors:"+ neighbours.Ancestors);
+                    val score_CN = DD+AA+AD+DA;
+println("-"+ctx.id()+"-"+ currentId + " CN score:"+ score_CN);
+                }
+
                 //TODO: for all t in targets, calculate number of DD and DA paths that reach it. ded = |DD|/|D|, ind = |DA|/|D|
                 //TODO: for all t in targets, che
                 //TODO: numNodes*(numNodes-1)-|targets_clean| have weight 0.
