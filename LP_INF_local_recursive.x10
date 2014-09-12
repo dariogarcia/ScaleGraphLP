@@ -151,25 +151,29 @@ public class LP_INF_local_recursive extends STest {
                 //For each message recieved
                 for(mess in messages){
                     val messageId:Long = mess.id_sender;
+                    //If self, skip!
+                    if(messageId == ctx.id()) continue;
                     //Seek the sender in the currently stored steps
                     for(rangeCurrentSteps in currentSteps.range()){
                         val currentStep = currentSteps(rangeCurrentSteps);
+                        //If self, skip!
+                        if(currentStep.targetId == ctx.id()) continue;
                         if(currentStep.targetId == messageId){
                             //Once found, create as many 2 steps paths as neighbors within the message
                             for(rangeNewSteps in mess.neighbours.range()){
                                 //If self, skip!
-                                if(mess.neighbours(rangeNewSteps).targetId == ctx.id()) continue;
+                                //if(mess.neighbours(rangeNewSteps).targetId == ctx.id()) continue;
                                 val s1 :Step = Step(mess.neighbours(rangeNewSteps).direction, mess.neighbours(rangeNewSteps).targetId);
                                 neighbours.steps(rangeCurrentSteps).neighbors.add(s1);
                                 var found :Boolean = false;
-                                //Unless already added, add target
+                                //Unless already added or is self, add target
                                 for(target_idx in targets.range()) if(targets(target_idx)==mess.neighbours(rangeNewSteps).targetId) found = true;
-                                if(!found) targets.add(mess.neighbours(rangeNewSteps).targetId);
+                                if(!found & mess.neighbours(rangeNewSteps).targetId != ctx.id()) targets.add(mess.neighbours(rangeNewSteps).targetId);
                             }
                         }
                     }
                 }
-                //For each target: If edge exists remove from targets. Else store and id and if TP.
+                //For each target: If edge exists remove from targets. Else store id and if TP.
                 var predictions :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
                 for (target_idx in targets.range()){
                     var alreadyExistent :Boolean = false;
@@ -193,30 +197,54 @@ public class LP_INF_local_recursive extends STest {
                     }
                     predictions.add(new PredictedLink(target,isTP));
                 }
-                //For each target, calculate the number of paths and their type
+                //For each target, calculate the number of shared neighbors, paths and their type
                 for(current in predictions.range()){
                     val currentId = predictions(current).id;
+                    val undirectedIds :GrowableMemory[Long] = new GrowableMemory[Long]();
 //println("-"+ctx.id()+"-"+currentId);
-                    var DD :Long = 0; var DA:Long = 0; var AD:Long = 0; var AA:Long = 0;
+                    var DD :Long = 0; var DA:Long = 0; var AD:Long = 0; var AA:Long = 0; 
+                    var CN_score :Double = 0; var RA_score :Double = 0; var AA_score : Double = 0;
                     //Seek number of paths of each type
                     for(rangeFirstStep in neighbours.steps.range()){
+                        var found :Boolean = false;
                         val firstStep = neighbours.steps(rangeFirstStep);
                         var firstDirection :Boolean = firstStep.direction;
                         for(rangeSecondStep in firstStep.neighbors.range()){
                             val secondStep = firstStep.neighbors(rangeSecondStep);
                             //Found a path
                             if(secondStep.targetId == currentId){
-                                if(secondStep.direction  &  firstDirection) AA++;
-                                if(!secondStep.direction &  firstDirection) AD++;
+println("--"+ctx.id()+"-"+ currentId + "-" + firstStep.targetId);
+                                found = true;
                                 if(secondStep.direction  & !firstDirection) DA++;
+                                if(secondStep.direction  &  firstDirection) AA++;
                                 if(!secondStep.direction & !firstDirection) DD++;
+                                if(!secondStep.direction &  firstDirection) AD++;
                             }
+                        }
+                        if(found) {
+                            var foundUndirected :Boolean = false;
+                            for(rangeUndirected in undirectedIds.range()){
+                                if(undirectedIds(rangeUndirected) == firstStep.targetId) {
+                                    foundUndirected = true;
+                                    break;
+                                }
+                            }
+                            if(foundUndirected) continue;
+println("----"+ctx.id()+"-"+ currentId + "-" + firstStep.targetId+ " with neighs size "+ firstStep.neighbors.size()+ " adds to RA ----"+firstStep.neighbors.size() +"----");
+//+Double.implicit_operator_as(1)/firstStep.neighbors.size() +"----"+
+//+Math.log(firstStep.neighbors.size()) +"----"+
+//+1/Math.log(firstStep.neighbors.size()) +"----");
+                            CN_score++;
+                            AA_score = AA_score + (1/(Math.log(firstStep.neighbors.size())));
+                            RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.neighbors.size());
+                            undirectedIds.add(firstStep.targetId);
                         }
                     }
 println("-"+ctx.id()+"-Descendants:"+ neighbours.Descendants);
 println("-"+ctx.id()+"-Ancestors:"+ neighbours.Ancestors);
-                    val score_CN = DD+AA+AD+DA;
-println("-"+ctx.id()+"-"+ currentId + " CN score:"+ score_CN);
+println("-"+ctx.id()+"-"+ currentId + " CN score:"+ CN_score);
+println("-"+ctx.id()+"-"+ currentId + " RA score:"+ RA_score);
+println("-"+ctx.id()+"-"+ currentId + " AA score:"+ AA_score);
                 }
 
                 //TODO: for all t in targets, calculate number of DD and DA paths that reach it. ded = |DD|/|D|, ind = |DA|/|D|
