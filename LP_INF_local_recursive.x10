@@ -23,10 +23,10 @@ import org.scalegraph.xpregel.XPregelGraph;
 
 public class LP_INF_local_recursive extends STest {
 
-
     public static struct PredictedLink{
         val id:Long;
         val TP:Boolean;
+
         public def this(i: Long, t: Boolean){
             id = i;
             TP = t;
@@ -35,28 +35,28 @@ public class LP_INF_local_recursive extends STest {
     
     public static struct Message{
         val id_sender:Long;
-        val neighbours:GrowableMemory[Step];
+        val messageGraph:GrowableMemory[Step];
         public def this(i: Long, n: GrowableMemory[Step]){
             id_sender = i;
-            neighbours = n;
+            messageGraph = n;
         }
     }
 
     public static struct VertexData{
-        val steps: GrowableMemory[Step];
+        val localGraph: GrowableMemory[Step];
         val testCandidates: GrowableMemory[Long];
         val candidates: GrowableMemory[Long];
         val Descendants: Long;
         val Ancestors: Long;
         public def this(){
-            steps = new GrowableMemory[Step]();
+            localGraph = new GrowableMemory[Step]();
             testCandidates = new GrowableMemory[Long]();
             candidates = new GrowableMemory[Long]();
             Descendants = 0;
             Ancestors = 0;
         }
         public def this(test: GrowableMemory[Long], st: GrowableMemory[Step], d: Long, a: Long){
-            steps = st;
+            localGraph = st;
             testCandidates = test;
             candidates = new GrowableMemory[Long]();
             Descendants = d;
@@ -103,7 +103,7 @@ public class LP_INF_local_recursive extends STest {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
-                var neighbours :GrowableMemory[Step] = new GrowableMemory[Step]();
+                var localGraph :GrowableMemory[Step] = new GrowableMemory[Step]();
                 var ancestors :Long = 0; var descendants :Long = 0;
                 //Load all outgoing edges of vertex
                 val tupleOut = ctx.outEdges();
@@ -114,11 +114,11 @@ public class LP_INF_local_recursive extends STest {
                 //For each vertex connected through an outgoing edges
                 for(idx in weightsOut.range()) {
                     //If the vertex is connected through an edges with weight = 1
-                    if (weightsOut(idx).compareTo(1) == 0){
+                    if(weightsOut(idx).compareTo(1) == 0){
                         ancestors++;
                         //Add the vertex id to the list of one path neighbors
                         val s = Step(true,idsOut(idx));
-                        neighbours.add(s);
+                        localGraph.add(s);
                     }
                     //Otherwise add the vertex as a test neighbour
                     else testNeighs.add(idsOut(idx));
@@ -126,94 +126,89 @@ public class LP_INF_local_recursive extends STest {
                 //For each vertex connected through an ingoing edges
                 for(idx in ctx.inEdgesValue().range()) {
                     //If the vertex is connected through an edges with weight = 1
-                    if (ctx.inEdgesValue()(idx).compareTo(1) == 0){
+                    if(ctx.inEdgesValue()(idx).compareTo(1) == 0){
                         descendants++;
                         //Add the vertex id to the list of one path neighbors
                         val s = Step(false,ctx.inEdgesId()(idx));
-                        neighbours.add(s);
+                        localGraph.add(s);
                     }
                 }
                 //Save the built list of one step neighbors
-                val firstStepRes:VertexData = new VertexData(testNeighs,neighbours,descendants,ancestors);
+                val firstStepRes:VertexData = new VertexData(testNeighs,localGraph,descendants,ancestors);
                 ctx.setValue(firstStepRes);
-                val m :Message = Message(ctx.id(),neighbours);
+                val m :Message = Message(ctx.id(),localGraph);
                 //Send the list to all neighbors
                 //ctx.sendMessageToAllNeighbors(m);
                 for(idx in ctx.inEdgesId()) ctx.sendMessage(idx,m);
                 for(idx in idsOut.range())  ctx.sendMessage(idsOut(idx),m);
             }
-            //Second superstep: read the messages, extend the steps with the information arriving
+            //Second superstep: read the messages, extend the localGraph with the information arriving
             if(ctx.superstep() == 1){
-                var targets :GrowableMemory[Long] = new GrowableMemory[Long]();
+                var localGraphTargets :GrowableMemory[Long] = new GrowableMemory[Long]();
                 //Load all one step neighbors
-                var neighbours :VertexData = ctx.value();
-                val currentSteps:GrowableMemory[Step]  = ctx.value().steps;
+                var vertexData :VertexData = ctx.value();
+println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vertexData.Ancestors);
+                val oldLocalGraph:GrowableMemory[Step]  = ctx.value().localGraph;
                 //For each message recieved
                 for(mess in messages){
                     val messageId:Long = mess.id_sender;
-                    //If self, skip!
+                    //If the sender is myself, skip it cause I already have that information
                     if(messageId == ctx.id()) continue;
-                    //Seek the sender in the currently stored steps
-                    for(rangeCurrentSteps in currentSteps.range()){
-                        val currentStep = currentSteps(rangeCurrentSteps);
-                        //If self, skip!
-                        if(currentStep.targetId == ctx.id()) continue;
-                        if(currentStep.targetId == messageId){
-                            //Once found, create as many 2 steps paths as neighbors within the message
-                            for(rangeNewSteps in mess.neighbours.range()){
-                                //If self, skip!
-                                //if(mess.neighbours(rangeNewSteps).targetId == ctx.id()) continue;
-                                val s1 :Step = Step(mess.neighbours(rangeNewSteps).direction, mess.neighbours(rangeNewSteps).targetId);
-                                neighbours.steps(rangeCurrentSteps).neighbors.add(s1);
+                    //Seek the sender in the oldLocalGraph
+                    for(rangeCurrentSteps in oldLocalGraph.range()){
+                        val oldStep = oldLocalGraph(rangeCurrentSteps);
+                        if(oldStep.targetId == messageId){
+                            //Once found, extend the localGraph adding one additional step per neighbor within the message
+                            for(rangeNewSteps in mess.messageGraph.range()){
+                                val newStep :Step = Step(mess.messageGraph(rangeNewSteps).direction, mess.messageGraph(rangeNewSteps).targetId);
+                                vertexData.localGraph(rangeCurrentSteps).neighbors.add(newStep);
                                 var found :Boolean = false;
-                                //Unless already added or is self, add target
-                                for(target_idx in targets.range()) if(targets(target_idx)==mess.neighbours(rangeNewSteps).targetId) found = true;
-                                if(!found & mess.neighbours(rangeNewSteps).targetId != ctx.id()) targets.add(mess.neighbours(rangeNewSteps).targetId);
+                                //Unless already added or is self, add as target according to localGraph
+                                for(target_idx in localGraphTargets.range()) if(localGraphTargets(target_idx)==mess.messageGraph(rangeNewSteps).targetId) found = true;
+                                if(!found & mess.messageGraph(rangeNewSteps).targetId != ctx.id()) localGraphTargets.add(mess.messageGraph(rangeNewSteps).targetId);
                             }
                         }
                     }
                 }
-                //For each target: If edge exists remove from targets. Else store id and if TP.
-                var predictions :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
-                for (target_idx in targets.range()){
+                printLocalGraph(vertexData.localGraph, 0);
+                //For each potential target: If outgoing edge from self already exists, remove from targets. Else store id and if TP.
+                var LPTargets :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
+                for(targetIDX in localGraphTargets.range()){
+                    val currentTarget = localGraphTargets(targetIDX);
                     var alreadyExistent :Boolean = false;
-                    val target = targets(target_idx);
-//TODO check only if outgoing edge exists! 
-                    for(rangeCurrentSteps in currentSteps.range()){
-                        val currentStep = currentSteps(rangeCurrentSteps);
-                        if((target == currentStep.targetId) & currentStep.direction){
+                    for(rangeCurrentSteps in oldLocalGraph.range()){
+                        val currentStep = oldLocalGraph(rangeCurrentSteps);
+                        if(currentTarget == currentStep.targetId & currentStep.direction){
                             alreadyExistent = true;
                             break;
                         }
                     }
-                    if (alreadyExistent) continue;
+                    if(alreadyExistent) continue;
                     var isTP :Boolean = false;
-                    for(rangeTPs in ctx.value().testCandidates.range()){
-                        val currentTP = ctx.value().testCandidates(rangeTPs);
-                        if(target == currentTP){
+                    for(TPsIDX in vertexData.testCandidates.range()){
+                        if(currentTarget == vertexData.testCandidates(TPsIDX)){
                             isTP = true;
                             break;
                         }
                     }
-                    predictions.add(new PredictedLink(target,isTP));
+                    LPTargets.add(new PredictedLink(currentTarget,isTP));
                 }
-                //For each target, calculate the number of shared neighbors, paths and their type
-                for(current in predictions.range()){
-                    val currentId = predictions(current).id;
+                //For each target, calculate # of directed (DD/AA/DA/AD) and undirected paths
+                for(targetIDX in LPTargets.range()){
+                    val target = LPTargets(targetIDX);
                     val undirectedIds :GrowableMemory[Long] = new GrowableMemory[Long]();
-//println("-"+ctx.id()+"-"+currentId);
                     var DD :Long = 0; var DA:Long = 0; var AD:Long = 0; var AA:Long = 0; 
-                    var CN_score :Double = 0; var RA_score :Double = 0; var AA_score : Double = 0;
+                    var CN_score :Double = 0; var RA_score:Double = 0; var AA_score:Double = 0; 
                     //Seek number of paths of each type
-                    for(rangeFirstStep in neighbours.steps.range()){
+                    for(rangeFirstStep in vertexData.localGraph.range()){
                         var found :Boolean = false;
-                        val firstStep = neighbours.steps(rangeFirstStep);
+                        val firstStep = vertexData.localGraph(rangeFirstStep);
                         var firstDirection :Boolean = firstStep.direction;
                         for(rangeSecondStep in firstStep.neighbors.range()){
                             val secondStep = firstStep.neighbors(rangeSecondStep);
                             //Found a path
-                            if(secondStep.targetId == currentId){
-println("--"+ctx.id()+"-"+ currentId + "-" + firstStep.targetId);
+                            if(secondStep.targetId == target.id){
+println("--Found path from "+ctx.id()+" to "+ target.id + " through " + firstStep.targetId);
                                 found = true;
                                 if(secondStep.direction  & !firstDirection) DA++;
                                 if(secondStep.direction  &  firstDirection) AA++;
@@ -221,30 +216,27 @@ println("--"+ctx.id()+"-"+ currentId + "-" + firstStep.targetId);
                                 if(!secondStep.direction &  firstDirection) AD++;
                             }
                         }
+                        //New directed path found, check if an undirected path was already added
                         if(found) {
                             var foundUndirected :Boolean = false;
-                            for(rangeUndirected in undirectedIds.range()){
-                                if(undirectedIds(rangeUndirected) == firstStep.targetId) {
+                            for(undirectedIDX in undirectedIds.range()){
+                                if(undirectedIds(undirectedIDX) == firstStep.targetId) {
                                     foundUndirected = true;
                                     break;
                                 }
                             }
-                            if(foundUndirected) continue;
-println("----"+ctx.id()+"-"+ currentId + "-" + firstStep.targetId+ " with neighs size "+ firstStep.neighbors.size()+ " adds to RA ----"+firstStep.neighbors.size() +"----");
-//+Double.implicit_operator_as(1)/firstStep.neighbors.size() +"----"+
-//+Math.log(firstStep.neighbors.size()) +"----"+
-//+1/Math.log(firstStep.neighbors.size()) +"----");
+                            if(foundUndirected) {
+println("----REPEAT_UND_PATH"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size "+firstStep.neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.neighbors.size());
+                                continue;
+                            }
+println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size "+firstStep.neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.neighbors.size());
                             CN_score++;
                             AA_score = AA_score + (1/(Math.log(firstStep.neighbors.size())));
                             RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.neighbors.size());
                             undirectedIds.add(firstStep.targetId);
                         }
                     }
-println("-"+ctx.id()+"-Descendants:"+ neighbours.Descendants);
-println("-"+ctx.id()+"-Ancestors:"+ neighbours.Ancestors);
-println("-"+ctx.id()+"-"+ currentId + " CN score:"+ CN_score);
-println("-"+ctx.id()+"-"+ currentId + " RA score:"+ RA_score);
-println("-"+ctx.id()+"-"+ currentId + " AA score:"+ AA_score);
+println("-"+ctx.id()+"-"+ target.id + " CN score:"+ CN_score+" RA score:"+ RA_score+ " AA score:"+ AA_score);
                 }
 
                 //TODO: for all t in targets, calculate number of DD and DA paths that reach it. ded = |DD|/|D|, ind = |DA|/|D|
@@ -252,7 +244,7 @@ println("-"+ctx.id()+"-"+ currentId + " AA score:"+ AA_score);
                 //TODO: numNodes*(numNodes-1)-|targets_clean| have weight 0.
 
 //PRINT FOR DEBUGGING
-//val m :Message = Message(ctx.id(),neighbours);
+//val m :Message = Message(ctx.id(),vertexData);
 //printNeighbourhood(m);
 //END PRINT FOR DEBUGGING    
 
@@ -271,11 +263,23 @@ println("-"+ctx.id()+"-"+ currentId + " AA score:"+ AA_score);
     static def printNeighbourhood(m:Message){
         Console.OUT.println("--------------");
         Console.OUT.println("Neighbourhood of node with Id:"+m.id_sender);
-        for(p in m.neighbours.range()){
-            //for(s in m.neighbours(p).path.range()){
-            //    //Console.OUT.println(m.neighbours(p).path(s).direction + " " + m.neighbours(p).path(s).targetId);
+        for(p in m.messageGraph.range()){
+            //for(s in m.messageGraph(p).path.range()){
+            //    //Console.OUT.println(m.messageGraph(p).path(s).direction + " " + m.messageGraph(p).path(s).targetId);
             //}
         Console.OUT.println("--------------");
+        }
+    }
+
+    static def printLocalGraph(lg :GrowableMemory[Step], depth :Long){
+        if(depth==Long.implicit_operator_as(0)) println("-Printing localGraph");
+        for(range in lg.range()){
+            thisStep :Step = lg(range);
+            for(i in 0..depth) print("-");
+            if(thisStep.direction == true) print(">");
+            if(thisStep.direction == false) print("<");
+            println(thisStep.targetId);
+            printLocalGraph(thisStep.neighbors,depth+1);
         }
     }
 
