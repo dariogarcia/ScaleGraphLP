@@ -23,6 +23,18 @@ import org.scalegraph.xpregel.XPregelGraph;
 
 public class LP_INF_local_recursive extends STest {
 
+    public static struct Point{
+        val weight :Double;
+        val tp :Long;
+        val fp :Long;
+        public def this(w :Double, t :Long, f :Long){
+            weight = w;
+            tp = t;
+            fp = f;
+        }
+    }
+
+
     public static struct CalculatedLink{
         val id:Long;
         val TP:Boolean;
@@ -68,15 +80,8 @@ public class LP_INF_local_recursive extends STest {
         val localGraph: GrowableMemory[Step];
         val testCandidates: GrowableMemory[Long];
         val candidates: GrowableMemory[Long];
-        val Descendants: Long;
-        val Ancestors: Long;
-        public def this(){
-            localGraph = new GrowableMemory[Step]();
-            testCandidates = new GrowableMemory[Long]();
-            candidates = new GrowableMemory[Long]();
-            Descendants = 0;
-            Ancestors = 0;
-        }
+        val Descendants: Double;
+        val Ancestors: Double;
         public def this(test: GrowableMemory[Long], st: GrowableMemory[Step], d: Long, a: Long){
             localGraph = st;
             testCandidates = test;
@@ -193,20 +198,20 @@ println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vert
                     }
                 }
                 printLocalGraph(vertexData.localGraph, 0);
-                //For each potential target: If outgoing edge from self already exists, remove from targets. Else store id, if TP
-//TODO!!! and Desc and Ances size
+                //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
                 var LPTargets :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
-                for(targetIDX in localGraphTargets.range()){
+                for(targetIDX in vertexData.localGraph.range()){
                     val currentTarget = localGraphTargets(targetIDX);
                     var alreadyExistent :Boolean = false;
-                    for(rangeCurrentSteps in oldLocalGraph.range()){
-                        val currentStep = oldLocalGraph(rangeCurrentSteps);
+                    for(rangeCurrentSteps in vertexData.localGraph.range()){
+                        val currentStep = vertexData.localGraph(rangeCurrentSteps);
                         if(currentTarget == currentStep.targetId & currentStep.direction){
                             alreadyExistent = true;
                             break;
                         }
                     }
                     if(alreadyExistent) continue;
+                    //Find if TP or FP
                     var isTP :Boolean = false;
                     for(TPsIDX in vertexData.testCandidates.range()){
                         if(currentTarget == vertexData.testCandidates(TPsIDX)){
@@ -216,12 +221,17 @@ println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vert
                     }
                     LPTargets.add(new PredictedLink(currentTarget,isTP));
                 }
+
+                output :GrowableMemory[CalculatedLink] = new GrowableMemory[CalculatedLink]();
                 //For each target, calculate # of directed (DD/AA/DA/AD) and undirected paths
                 for(targetIDX in LPTargets.range()){
                     val target = LPTargets(targetIDX);
                     val undirectedIds :GrowableMemory[Long] = new GrowableMemory[Long]();
-                    var DD :Double = 0; var DA:Double = 0; var AD:Double = 0; var AA:Double = 0; 
-                    var CN_score :Double = 0; var RA_score:Double = 0; var AA_score:Double = 0; 
+                    var DD :Double = 0; var DA:Double = 0; var AD:Double = 0; var AA:Double = 0;
+                    //TODO: got to use hashmaps for this... otherwise its gonna be too slow 
+                    var CN_score :Double = 0; var RA_score:Double = 0; var AA_score:Double = 0;
+                    var CN_points :GrowableMemory[Point]; var RA_points :GrowableMemory[Point]; var AA_points :GrowableMemory[Point];  
+                    var INF_points :GrowableMemory[Point]; var INF_LOG_points :GrowableMemory[Point]; var INF_2D_points :GrowableMemory[Point]; var INF_LOG_2D_points :GrowableMemory[Point];  
                     //Seek number of paths of each type
                     for(rangeFirstStep in vertexData.localGraph.range()){
                         var found :Boolean = false;
@@ -259,17 +269,17 @@ println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size 
                             undirectedIds.add(firstStep.targetId);
                         }
                     }
-println("-"+ctx.id()+"-"+ target.id + " CN score:"+ CN_score+" RA score:"+ RA_score+ " AA score:"+ AA_score);
-                
-                    //ded_score :Double = DD/
-
-
-
+                    val ded_score :Double = DD/vertexData.Descendants;
+                    val ind_score :Double = AD/vertexData.Ancestors;
+                    val inf_score = ded_score + ind_score;
+                    val inf_2d_score = (ded_score*2) + ind_score;
+                    val inf_log_score = (ded_score*Math.log(vertexData.Descendants)) + (ind_score*Math.log(vertexData.Ancestors));
+                    val inf_log_2d_score = (ded_score*Math.log(vertexData.Descendants))*2 + (ind_score*Math.log(vertexData.Ancestors));
+                    output.add(new CalculatedLink(target.id, target.TP, CN_score, RA_score, AA_score, inf_score, inf_log_score, inf_2d_score, inf_log_2d_score));
+println("ADDING calculated link from "+ctx.id()+" to "+ target.id + " with CN score:"+ CN_score+" RA score:"+ RA_score+ " AA score:"+ AA_score+ " INF:"+inf_score+ " INF_LOG" +inf_log_score+" INF_2D"+ inf_2d_score+" INF_LOG_2D"+inf_log_2d_score);
                 }
 
-                //TODO: for all t in targets, calculate number of DD and DA paths that reach it. ded = |DD|/|D|, ind = |DA|/|D|
-                //TODO: for all t in targets, che
-                //TODO: numNodes*(numNodes-1)-|targets_clean| have weight 0.
+                //TODO: numNodes*(numNodes-1)-|calculated_links| have weight 0.
 
 //PRINT FOR DEBUGGING
 //val m :Message = Message(ctx.id(),vertexData);
