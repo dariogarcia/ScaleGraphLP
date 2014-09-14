@@ -23,10 +23,32 @@ import org.scalegraph.xpregel.XPregelGraph;
 
 public class LP_INF_local_recursive extends STest {
 
+    public static struct CalculatedLink{
+        val id:Long;
+        val TP:Boolean;
+        val CNscore: Double;
+        val RAscore: Double;
+        val AAscore: Double;
+        val INFscore: Double;
+        val INFLOGscore: Double;
+        val INF2Dscore: Double;
+        val INFLOG_2Dscore: Double;
+        public def this(i: Long, t: Boolean, cn: Double, ra: Double, aa: Double, inf: Double, il: Double, i2: Double, il2: Double){
+            id = i;
+            TP = t;
+            CNscore = cn;   
+            RAscore = ra;
+            AAscore = aa;
+            INFscore = inf;
+            INFLOGscore = il;
+            INF2Dscore = i2;
+            INFLOG_2Dscore = il2;
+        }
+    }
+
     public static struct PredictedLink{
         val id:Long;
         val TP:Boolean;
-
         public def this(i: Long, t: Boolean){
             id = i;
             TP = t;
@@ -171,7 +193,8 @@ println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vert
                     }
                 }
                 printLocalGraph(vertexData.localGraph, 0);
-                //For each potential target: If outgoing edge from self already exists, remove from targets. Else store id and if TP.
+                //For each potential target: If outgoing edge from self already exists, remove from targets. Else store id, if TP
+//TODO!!! and Desc and Ances size
                 var LPTargets :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
                 for(targetIDX in localGraphTargets.range()){
                     val currentTarget = localGraphTargets(targetIDX);
@@ -197,7 +220,7 @@ println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vert
                 for(targetIDX in LPTargets.range()){
                     val target = LPTargets(targetIDX);
                     val undirectedIds :GrowableMemory[Long] = new GrowableMemory[Long]();
-                    var DD :Long = 0; var DA:Long = 0; var AD:Long = 0; var AA:Long = 0; 
+                    var DD :Double = 0; var DA:Double = 0; var AD:Double = 0; var AA:Double = 0; 
                     var CN_score :Double = 0; var RA_score:Double = 0; var AA_score:Double = 0; 
                     //Seek number of paths of each type
                     for(rangeFirstStep in vertexData.localGraph.range()){
@@ -237,6 +260,11 @@ println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size 
                         }
                     }
 println("-"+ctx.id()+"-"+ target.id + " CN score:"+ CN_score+" RA score:"+ RA_score+ " AA score:"+ AA_score);
+                
+                    //ded_score :Double = DD/
+
+
+
                 }
 
                 //TODO: for all t in targets, calculate number of DD and DA paths that reach it. ded = |DD|/|D|, ind = |DA|/|D|
