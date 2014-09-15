@@ -11,6 +11,7 @@
 import x10.util.Team;
 import org.scalegraph.util.GrowableMemory;
 import org.scalegraph.util.MemoryChunk;
+import org.scalegraph.util.HashMap;
 import org.scalegraph.graph.Graph;
 import org.scalegraph.io.CSV;
 import org.scalegraph.id.Type;
@@ -23,38 +24,21 @@ import org.scalegraph.xpregel.XPregelGraph;
 
 public class LP_INF_local_recursive extends STest {
 
-    public static struct Point{
-        val weight :Double;
+    public static struct HitRate{
         val tp :Long;
         val fp :Long;
-        public def this(w :Double, t :Long, f :Long){
-            weight = w;
+        public def this(t :Long, f :Long){
             tp = t;
             fp = f;
         }
     }
 
-
-    public static struct CalculatedLink{
-        val id:Long;
-        val TP:Boolean;
-        val CNscore: Double;
-        val RAscore: Double;
-        val AAscore: Double;
-        val INFscore: Double;
-        val INFLOGscore: Double;
-        val INF2Dscore: Double;
-        val INFLOG_2Dscore: Double;
-        public def this(i: Long, t: Boolean, cn: Double, ra: Double, aa: Double, inf: Double, il: Double, i2: Double, il2: Double){
-            id = i;
-            TP = t;
-            CNscore = cn;   
-            RAscore = ra;
-            AAscore = aa;
-            INFscore = inf;
-            INFLOGscore = il;
-            INF2Dscore = i2;
-            INFLOG_2Dscore = il2;
+    public static struct ScorePair{
+        val scoreName :String;
+        val weights :HashMap[Double,HitRate];
+        public def this(s :String, w :HashMap[Double,HitRate]){
+            scoreName = s;
+            weights = w;
         }
     }
 
@@ -125,7 +109,7 @@ public class LP_INF_local_recursive extends STest {
         xpregel.setLogPrinter(Console.ERR, 0);
         xpregel.updateInEdge();
         xpregel.updateInEdgeAndValue();
-
+        val N:Long = xpregel.size();
         xpregel.iterate[Message,Double]((ctx :VertexContext[VertexData, Byte, Message, Double], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
@@ -227,16 +211,22 @@ println("Adding target:"+currentTarget);
                     LPTargets.add(new PredictedLink(currentTarget,isTP));
                 }
 
-                output :GrowableMemory[CalculatedLink] = new GrowableMemory[CalculatedLink]();
+                output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
+                var cn_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var ra_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var aa_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_log_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_2d_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_log_2d_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var tpsFound :Long = 0;
                 //For each target, calculate # of directed (DD/AA/DA/AD) and undirected paths
                 for(targetIDX in LPTargets.range()){
                     val target = LPTargets(targetIDX);
+                    if(target.TP) tpsFound++;
                     val undirectedIds :GrowableMemory[Long] = new GrowableMemory[Long]();
                     var DD :Double = 0; var DA:Double = 0; var AD:Double = 0; var AA:Double = 0;
-                    //TODO: got to use hashmaps for this... otherwise its gonna be too slow 
                     var CN_score :Double = 0; var RA_score:Double = 0; var AA_score:Double = 0;
-                    var CN_points :GrowableMemory[Point]; var RA_points :GrowableMemory[Point]; var AA_points :GrowableMemory[Point];  
-                    var INF_points :GrowableMemory[Point]; var INF_LOG_points :GrowableMemory[Point]; var INF_2D_points :GrowableMemory[Point]; var INF_LOG_2D_points :GrowableMemory[Point];  
                     //Seek number of paths of each type
                     for(rangeFirstStep in vertexData.localGraph.range()){
                         var found :Boolean = false;
@@ -274,19 +264,20 @@ println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size 
                             undirectedIds.add(firstStep.targetId);
                         }
                     }
+                    //Calculate INF related scores
                     var ded_score :Double = 0; var ind_score :Double = 0; var inf_log_score :Double = 0; var inf_log_2d_score :Double = 0;
-                    if(vertexData.Ancestors > 0){// & AA > 0){
+                    if(vertexData.Ancestors > 0){
                         ded_score = AA/vertexData.Ancestors;
                         inf_log_score = ded_score*Math.log10(vertexData.Ancestors);
                         inf_log_2d_score = (ded_score*Math.log10(vertexData.Ancestors))*2;
-                                if(vertexData.Descendants > 0){// & DA > 0){
+                        if(vertexData.Descendants > 0){
                             ind_score = DA/vertexData.Descendants;
                             inf_log_score = inf_log_score + ind_score*Math.log10(vertexData.Descendants);
                             inf_log_2d_score = inf_log_2d_score + ind_score*Math.log(vertexData.Descendants);
                         }
                     }
                     else {
-                        if(vertexData.Descendants > 0){// & DA > 0){
+                        if(vertexData.Descendants > 0){
                             ind_score = DA/vertexData.Descendants;
                             inf_log_score = ind_score*Math.log10(vertexData.Descendants);
                             inf_log_2d_score = ind_score*Math.log10(vertexData.Descendants);
@@ -294,40 +285,64 @@ println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size 
                     }
                     val inf_score = ded_score + ind_score;
                     val inf_2d_score = (ded_score*2) + ind_score;
-                    output.add(new CalculatedLink(target.id, target.TP, CN_score, RA_score, AA_score, inf_score, inf_log_score, inf_2d_score, inf_log_2d_score));
-//println("ADDING calculated link from "+ctx.id()+" to "+ target.id + " with CN score:"+ CN_score+" RA score:"+ RA_score+ " AA score:"+ AA_score+ " INF:"+inf_score+ " INF_LOG" +inf_log_score+" INF_2D"+ inf_2d_score+" INF_LOG_2D"+inf_log_2d_score);
-println("ADDING calculated link from "+ctx.id()+" to "+ target.id + " with ded score:"+ ded_score+" ind score:"+ ind_score+ " INF:"+inf_score+ " INF_LOG:" +inf_log_score+" INF_2D:"+ inf_2d_score+" INF_LOG_2D:"+inf_log_2d_score);
-                }
-
-                //TODO: numNodes*(numNodes-1)-|calculated_links| have weight 0.
-
-//PRINT FOR DEBUGGING
-//val m :Message = Message(ctx.id(),vertexData);
-//printNeighbourhood(m);
-//END PRINT FOR DEBUGGING    
+                    //Store values 
+                    if(cn_scores.containsKey(CN_score)){
+                        //if(target.TP) cn_scores.put(CN_score,new HitRate((cn_scores.get(CN_score)).tp+1,(cn_scores.get(CN_score)).fp));
+                        //else cn_scores.put(CN_score,new HitRate(cn_scores.get(CN_score).tp,cn_scores.get(CN_score).fp+1));
+                    }
+                    else {
+                        if(target.TP) cn_scores.put(CN_score,new HitRate(1,0));
+                        else cn_scores.put(CN_score,new HitRate(0,1));
+                    }
+                } 
+                //Store 0 values
+                val tpsAtZero = vertexData.testCandidates.size()-tpsFound;
+                val fpsAtZero = (N*(N-1))-tpsAtZero-LPTargets.size();
+                cn_scores.put(0,new HitRate(tpsAtZero,fpsAtZero));
+                ra_scores.put(0,new HitRate(tpsAtZero,fpsAtZero));
+                aa_scores.put(0,new HitRate(tpsAtZero,fpsAtZero));
+                inf_scores.put(0,new HitRate(tpsAtZero,fpsAtZero));
+                inf_log_scores.put(0,new HitRate(tpsAtZero,fpsAtZero));
+                inf_2d_scores.put(0,new HitRate(tpsAtZero,fpsAtZero));
+                inf_log_2d_scores.put(0,new HitRate(tpsAtZero,fpsAtZero));
+                //Store for output
+                output.add(new ScorePair("CN",cn_scores));
+                output.add(new ScorePair("RA",ra_scores));
+                output.add(new ScorePair("AA",aa_scores));
+                output.add(new ScorePair("INF",inf_scores));
+                output.add(new ScorePair("INF_LOG",inf_log_scores));
+                output.add(new ScorePair("INF_2D",inf_2d_scores));
+                output.add(new ScorePair("INF_LOG_2D",inf_log_2d_scores));
+                ctx.output(output);
 
                 ctx.voteToHalt();
             }
 	    },
         //I'm not sure what could I use the aggregator for.
         null,
+//TODO: use the combiner
         //Combiner CombinePaths should take various Message and append them into the same ... is it possible without losing the Ids??
         //The vertex could add its Id to every path before sending it to the combiner. But this increases the size of messages dramatically.
 	    //(paths :MemoryChunk[Message]) => combinePaths(paths),
         (superstep :Int, someValue :Double) => (superstep >= 2));
+
+        //Post-process, read outputs of all vertices, combine & reduce them and print the final points.
+        val results = xpregel.stealOutput();//:DistMemoryChunkGrowableMemory[ScorePair]
+
+
         return true;
     }
 
-    static def printNeighbourhood(m:Message){
-        Console.OUT.println("--------------");
-        Console.OUT.println("Neighbourhood of node with Id:"+m.id_sender);
-        for(p in m.messageGraph.range()){
-            //for(s in m.messageGraph(p).path.range()){
-            //    //Console.OUT.println(m.messageGraph(p).path(s).direction + " " + m.messageGraph(p).path(s).targetId);
-            //}
-        Console.OUT.println("--------------");
-        }
-    }
+//    static def printNeighbourhood(m:Message){
+//        Console.OUT.println("--------------");
+//        Console.OUT.println("Neighbourhood of node with Id:"+m.id_sender);
+//        for(p in m.messageGraph.range()){
+//            //for(s in m.messageGraph(p).path.range()){
+//            //    //Console.OUT.println(m.messageGraph(p).path(s).direction + " " + m.messageGraph(p).path(s).targetId);
+//            //}
+//        Console.OUT.println("--------------");
+//        }
+//    }
 
     static def printLocalGraph(lg :GrowableMemory[Step], depth :Long){
         if(depth==Long.implicit_operator_as(0)) println("-Printing localGraph");
