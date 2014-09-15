@@ -136,6 +136,7 @@ public class LP_INF_local_recursive extends STest {
                 val tupleOut = ctx.outEdges();
                 val idsOut = tupleOut.get1();
                 val weightsOut = tupleOut.get2();
+//TODO: Optimization: avoid storing twice data of nodes connected in various ways
                 //Store those vertex linked by an outgoing edge which are to be used as test
                 var testNeighs :GrowableMemory[Long] = new GrowableMemory[Long]();
                 //For each vertex connected through an outgoing edges
@@ -184,15 +185,15 @@ println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vert
                     //Seek the sender in the oldLocalGraph
                     for(rangeCurrentSteps in oldLocalGraph.range()){
                         val oldStep = oldLocalGraph(rangeCurrentSteps);
-                        if(oldStep.targetId == messageId){
-                            //Once found, extend the localGraph adding one additional step per neighbor within the message
+                        if(oldStep.targetId == messageId & vertexData.localGraph(rangeCurrentSteps).neighbors.size()==Long.implicit_operator_as(0)){
+                            //Once found, extend the localGraph adding one additional step per neighbor within the message, (unless already extended)
                             for(rangeNewSteps in mess.messageGraph.range()){
-                                val newStep :Step = Step(mess.messageGraph(rangeNewSteps).direction, mess.messageGraph(rangeNewSteps).targetId);
-                                vertexData.localGraph(rangeCurrentSteps).neighbors.add(newStep);
-                                var found :Boolean = false;
-                                //Unless already added or is self, add as target according to localGraph
-                                for(target_idx in localGraphTargets.range()) if(localGraphTargets(target_idx)==mess.messageGraph(rangeNewSteps).targetId) found = true;
-                                if(!found & mess.messageGraph(rangeNewSteps).targetId != ctx.id()) localGraphTargets.add(mess.messageGraph(rangeNewSteps).targetId);
+                                    val newStep :Step = Step(mess.messageGraph(rangeNewSteps).direction, mess.messageGraph(rangeNewSteps).targetId);
+                                    vertexData.localGraph(rangeCurrentSteps).neighbors.add(newStep);
+                                    var found :Boolean = false;
+                                    //Unless already added or is self, add as target according to localGraph
+                                    for(target_idx in localGraphTargets.range()) if(localGraphTargets(target_idx)==mess.messageGraph(rangeNewSteps).targetId) found = true;
+                                    if(!found & mess.messageGraph(rangeNewSteps).targetId != ctx.id()) localGraphTargets.add(mess.messageGraph(rangeNewSteps).targetId);
                             }
                         }
                     }
@@ -200,7 +201,7 @@ println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vert
                 printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
                 var LPTargets :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
-                for(targetIDX in vertexData.localGraph.range()){
+                for(targetIDX in localGraphTargets.range()){
                     val currentTarget = localGraphTargets(targetIDX);
                     var alreadyExistent :Boolean = false;
                     for(rangeCurrentSteps in vertexData.localGraph.range()){
@@ -210,7 +211,10 @@ println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vert
                             break;
                         }
                     }
-                    if(alreadyExistent) continue;
+                    if(alreadyExistent) {
+println("Skipping repeated target:"+currentTarget);
+                        continue;
+                    }
                     //Find if TP or FP
                     var isTP :Boolean = false;
                     for(TPsIDX in vertexData.testCandidates.range()){
@@ -219,6 +223,7 @@ println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vert
                             break;
                         }
                     }
+println("Adding target:"+currentTarget);
                     LPTargets.add(new PredictedLink(currentTarget,isTP));
                 }
 
@@ -269,14 +274,29 @@ println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size 
                             undirectedIds.add(firstStep.targetId);
                         }
                     }
-                    val ded_score :Double = DD/vertexData.Descendants;
-                    val ind_score :Double = AD/vertexData.Ancestors;
+                    var ded_score :Double = 0; var ind_score :Double = 0; var inf_log_score :Double = 0; var inf_log_2d_score :Double = 0;
+                    if(vertexData.Ancestors > 0){// & AA > 0){
+                        ded_score = AA/vertexData.Ancestors;
+                        inf_log_score = ded_score*Math.log10(vertexData.Ancestors);
+                        inf_log_2d_score = (ded_score*Math.log10(vertexData.Ancestors))*2;
+                                if(vertexData.Descendants > 0){// & DA > 0){
+                            ind_score = DA/vertexData.Descendants;
+                            inf_log_score = inf_log_score + ind_score*Math.log10(vertexData.Descendants);
+                            inf_log_2d_score = inf_log_2d_score + ind_score*Math.log(vertexData.Descendants);
+                        }
+                    }
+                    else {
+                        if(vertexData.Descendants > 0){// & DA > 0){
+                            ind_score = DA/vertexData.Descendants;
+                            inf_log_score = ind_score*Math.log10(vertexData.Descendants);
+                            inf_log_2d_score = ind_score*Math.log10(vertexData.Descendants);
+                        }
+                    }
                     val inf_score = ded_score + ind_score;
                     val inf_2d_score = (ded_score*2) + ind_score;
-                    val inf_log_score = (ded_score*Math.log(vertexData.Descendants)) + (ind_score*Math.log(vertexData.Ancestors));
-                    val inf_log_2d_score = (ded_score*Math.log(vertexData.Descendants))*2 + (ind_score*Math.log(vertexData.Ancestors));
                     output.add(new CalculatedLink(target.id, target.TP, CN_score, RA_score, AA_score, inf_score, inf_log_score, inf_2d_score, inf_log_2d_score));
-println("ADDING calculated link from "+ctx.id()+" to "+ target.id + " with CN score:"+ CN_score+" RA score:"+ RA_score+ " AA score:"+ AA_score+ " INF:"+inf_score+ " INF_LOG" +inf_log_score+" INF_2D"+ inf_2d_score+" INF_LOG_2D"+inf_log_2d_score);
+//println("ADDING calculated link from "+ctx.id()+" to "+ target.id + " with CN score:"+ CN_score+" RA score:"+ RA_score+ " AA score:"+ AA_score+ " INF:"+inf_score+ " INF_LOG" +inf_log_score+" INF_2D"+ inf_2d_score+" INF_LOG_2D"+inf_log_2d_score);
+println("ADDING calculated link from "+ctx.id()+" to "+ target.id + " with ded score:"+ ded_score+" ind score:"+ ind_score+ " INF:"+inf_score+ " INF_LOG:" +inf_log_score+" INF_2D:"+ inf_2d_score+" INF_LOG_2D:"+inf_log_2d_score);
                 }
 
                 //TODO: numNodes*(numNodes-1)-|calculated_links| have weight 0.
