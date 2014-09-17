@@ -130,7 +130,8 @@ public class LP_INF_local_recursive extends STest {
         xpregel.setLogPrinter(Console.ERR, 0);
         xpregel.updateInEdge();
         xpregel.updateInEdgeAndValue();
-        //val N:Long = xpregel.size();
+        val Edges:Long = graph.numberOfEdges();
+        val Vertices:Long = graph.numberOfVertices();
         val N:Long = 11;
         xpregel.iterate[Message,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, Message, GrowableMemory[ScorePair]], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
@@ -418,7 +419,66 @@ public class LP_INF_local_recursive extends STest {
             }
         },
         null,
-        (combiner :MemoryChunk[MessageReduce]) => predictionCombiner(combiner),
+        (allVertexPoints :MemoryChunk[MessageReduce]) :MessageReduce => {
+    bufferedPrintln("combiner at " + here.id);
+            val dummyN :Long = Vertices;
+            val dummyT :Long = 7;
+            if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new MessageReduce(new GrowableMemory[ScorePair]());
+            ret_val :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
+            //For each score calculated
+            for(rangeScores in allVertexPoints(0).last_data.range()){
+    bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
+                //Obtain the unique list of weights and their combined tp/fp
+                var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                val name :String = allVertexPoints(0).last_data(rangeScores).scoreName; 
+                val fw_roc = new FileWriter(name+"_points.roc", FileMode.Create);
+                val fw_pr = new FileWriter(name+"_points.pr", FileMode.Create);
+                //For each vertex
+                for(vertexRange in allVertexPoints.range()){
+                    val currentScorePair = allVertexPoints(vertexRange).last_data(rangeScores);
+    bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
+                    //For each weight in scorePair
+                    for(weight in currentScorePair.weights.keySet()){
+                        //If weight existed, increase tp/fp counters, else add it
+                        if(reduction.containsKey(weight)) reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp , reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
+                        else {
+                            reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
+    bufferedPrintln("Weights found: "+weight);
+                        }
+                    }
+                }
+                val SP :ScorePair = new ScorePair(name,reduction);
+                ret_val.add(SP);
+    bufferedPrintln("Total weights found: "+reduction.size());
+                //Once we have everything reduced in var reduction, we can calculate the points: For each weight calculate the accumulated tp/fp
+                var tpTotal :Long = 0; var fpTotal :Long = 0; 
+                for(threshold in reduction.keySet()){
+                    //Calculate against all weights
+                    for(currentWeight in reduction.keySet()){
+                        if(currentWeight>=threshold){
+                            tpTotal +=reduction.get(currentWeight)().tp;
+                            fpTotal +=reduction.get(currentWeight)().fp;
+                        }
+                    }
+                    //Calculate points
+    bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal);
+                    var roc_x :Double = fpTotal/Double.implicit_operator_as((dummyN*(dummyN-1)-Edges));
+                    var roc_y :Double = tpTotal/Double.implicit_operator_as(dummyT);
+                    var pr_x :Double = tpTotal/Double.implicit_operator_as(dummyT);
+                    var pr_y :Double = tpTotal/Double.implicit_operator_as((tpTotal+fpTotal));
+                    //Write points
+                    val sb_roc = new SStringBuilder();
+                    sb_roc.add(roc_x).add(" ").add(roc_y).add("\n");
+                    fw_roc.write(sb_roc.result().bytes());
+                    val sb_pr = new SStringBuilder();
+                    sb_pr.add(pr_x).add(" ").add(pr_y).add("\n");
+                    fw_pr.write(sb_pr.result().bytes());
+                }
+                fw_roc.close();
+                fw_pr.close();
+            }
+            return new MessageReduce(ret_val);
+        },
         (superstep :Int, someValue :GrowableMemory[ScorePair]) => (superstep >= 2));
         return true;
     }
@@ -435,67 +495,67 @@ public class LP_INF_local_recursive extends STest {
         }
     }
 
-    static def predictionCombiner(allVertexPoints :MemoryChunk[MessageReduce]) :MessageReduce {
-bufferedPrintln("combiner at " + here.id);
-        val dummyN :Long = 11;
-        val dummyE :Long = 28;
-        val dummyT :Long = 7;
-        if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new MessageReduce(new GrowableMemory[ScorePair]());
-        ret_val :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
-        //For each score calculated
-        for(rangeScores in allVertexPoints(0).last_data.range()){
-bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
-            //Obtain the unique list of weights and their combined tp/fp
-            var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
-            val name :String = allVertexPoints(0).last_data(rangeScores).scoreName; 
-            val fw_roc = new FileWriter(name+"_points.roc", FileMode.Create);
-            val fw_pr = new FileWriter(name+"_points.pr", FileMode.Create);
-            //For each vertex
-            for(vertexRange in allVertexPoints.range()){
-                val currentScorePair = allVertexPoints(vertexRange).last_data(rangeScores);
-bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
-                //For each weight in scorePair
-                for(weight in currentScorePair.weights.keySet()){
-                    //If weight existed, increase tp/fp counters, else add it
-                    if(reduction.containsKey(weight)) reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp , reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
-                    else {
-                        reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
-bufferedPrintln("Weights found: "+weight);
-                    }
-                }
-            }
-            val SP :ScorePair = new ScorePair(name,reduction);
-            ret_val.add(SP);
-bufferedPrintln("Total weights found: "+reduction.size());
-            //Once we have everything reduced in var reduction, we can calculate the points: For each weight calculate the accumulated tp/fp
-            var tpTotal :Long = 0; var fpTotal :Long = 0; 
-            for(threshold in reduction.keySet()){
-                //Calculate against all weights
-                for(currentWeight in reduction.keySet()){
-                    if(currentWeight>=threshold){
-                        tpTotal +=reduction.get(currentWeight)().tp;
-                        fpTotal +=reduction.get(currentWeight)().fp;
-                    }
-                }
-                //Calculate points
-bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal);
-                var roc_x :Double = fpTotal/Double.implicit_operator_as((dummyN*(dummyN-1)-dummyE));
-                var roc_y :Double = tpTotal/Double.implicit_operator_as(dummyT);
-                var pr_x :Double = tpTotal/Double.implicit_operator_as(dummyT);
-                var pr_y :Double = tpTotal/Double.implicit_operator_as((tpTotal+fpTotal));
-                //Write points
-                val sb_roc = new SStringBuilder();
-                sb_roc.add(roc_x).add(" ").add(roc_y).add("\n");
-                fw_roc.write(sb_roc.result().bytes());
-                val sb_pr = new SStringBuilder();
-                sb_pr.add(pr_x).add(" ").add(pr_y).add("\n");
-                fw_pr.write(sb_pr.result().bytes());
-            }
-            fw_roc.close();
-            fw_pr.close();
-        }
-        return new MessageReduce(ret_val);
-    }
+//    static def predictionCombiner(allVertexPoints :MemoryChunk[MessageReduce]) :MessageReduce {
+//bufferedPrintln("combiner at " + here.id);
+//        val dummyN :Long = 11;
+//        val dummyE :Long = 28;
+//        val dummyT :Long = 7;
+//        if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new MessageReduce(new GrowableMemory[ScorePair]());
+//        ret_val :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
+//        //For each score calculated
+//        for(rangeScores in allVertexPoints(0).last_data.range()){
+//bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
+//            //Obtain the unique list of weights and their combined tp/fp
+//            var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+//            val name :String = allVertexPoints(0).last_data(rangeScores).scoreName; 
+//            val fw_roc = new FileWriter(name+"_points.roc", FileMode.Create);
+//            val fw_pr = new FileWriter(name+"_points.pr", FileMode.Create);
+//            //For each vertex
+//            for(vertexRange in allVertexPoints.range()){
+//                val currentScorePair = allVertexPoints(vertexRange).last_data(rangeScores);
+//bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
+//                //For each weight in scorePair
+//                for(weight in currentScorePair.weights.keySet()){
+//                    //If weight existed, increase tp/fp counters, else add it
+//                    if(reduction.containsKey(weight)) reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp , reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
+//                    else {
+//                        reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
+//bufferedPrintln("Weights found: "+weight);
+//                    }
+//                }
+//            }
+//            val SP :ScorePair = new ScorePair(name,reduction);
+//            ret_val.add(SP);
+//bufferedPrintln("Total weights found: "+reduction.size());
+//            //Once we have everything reduced in var reduction, we can calculate the points: For each weight calculate the accumulated tp/fp
+//            var tpTotal :Long = 0; var fpTotal :Long = 0; 
+//            for(threshold in reduction.keySet()){
+//                //Calculate against all weights
+//                for(currentWeight in reduction.keySet()){
+//                    if(currentWeight>=threshold){
+//                        tpTotal +=reduction.get(currentWeight)().tp;
+//                        fpTotal +=reduction.get(currentWeight)().fp;
+//                    }
+//                }
+//                //Calculate points
+//bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal);
+//                var roc_x :Double = fpTotal/Double.implicit_operator_as((dummyN*(dummyN-1)-dummyE));
+//                var roc_y :Double = tpTotal/Double.implicit_operator_as(dummyT);
+//                var pr_x :Double = tpTotal/Double.implicit_operator_as(dummyT);
+//                var pr_y :Double = tpTotal/Double.implicit_operator_as((tpTotal+fpTotal));
+//                //Write points
+//                val sb_roc = new SStringBuilder();
+//                sb_roc.add(roc_x).add(" ").add(roc_y).add("\n");
+//                fw_roc.write(sb_roc.result().bytes());
+//                val sb_pr = new SStringBuilder();
+//                sb_pr.add(pr_x).add(" ").add(pr_y).add("\n");
+//                fw_pr.write(sb_pr.result().bytes());
+//            }
+//            fw_roc.close();
+//            fw_pr.close();
+//        }
+//        return new MessageReduce(ret_val);
+//    }
     
     //static def combinePaths(paths : MemoryChunk[Message]) :Message {
     //    //TODO
