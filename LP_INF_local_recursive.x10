@@ -54,6 +54,13 @@ public class LP_INF_local_recursive extends STest {
         }
     }
     
+    public static struct MessageReduce{
+        val last_data: GrowableMemory[ScorePair];
+        public def this(last: GrowableMemory[ScorePair]){
+            last_data = last;
+        }
+    }
+        
     public static struct Message{
         val id_sender:Long;
         val messageGraph:GrowableMemory[Step];
@@ -67,14 +74,24 @@ public class LP_INF_local_recursive extends STest {
         val localGraph: GrowableMemory[Step];
         val testCandidates: GrowableMemory[Long];
         val candidates: GrowableMemory[Long];
-        val Descendants: Double;
-        val Ancestors: Double;
+        val Descendants: Long;
+        val Ancestors: Long;
+        val last_data: GrowableMemory[ScorePair];
         public def this(test: GrowableMemory[Long], st: GrowableMemory[Step], d: Long, a: Long){
             localGraph = st;
             testCandidates = test;
             candidates = new GrowableMemory[Long]();
             Descendants = d;
             Ancestors = a;
+            last_data = new GrowableMemory[ScorePair]();
+        }
+        public def this(last: GrowableMemory[ScorePair]){
+            localGraph = new GrowableMemory[Step]();
+            testCandidates = new GrowableMemory[Long]();
+            candidates = new GrowableMemory[Long]();
+            Descendants = 0;
+            Ancestors = 0;
+            last_data = last;
         }
     }
 
@@ -113,7 +130,8 @@ public class LP_INF_local_recursive extends STest {
         xpregel.setLogPrinter(Console.ERR, 0);
         xpregel.updateInEdge();
         xpregel.updateInEdgeAndValue();
-        val N:Long = xpregel.size();
+        //val N:Long = xpregel.size();
+        val N:Long = 11;
         xpregel.iterate[Message,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, Message, GrowableMemory[ScorePair]], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
@@ -163,7 +181,7 @@ public class LP_INF_local_recursive extends STest {
                 var localGraphTargets :GrowableMemory[Long] = new GrowableMemory[Long]();
                 //Load all one step neighbors
                 var vertexData :VertexData = ctx.value();
-println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vertexData.Ancestors);
+//bufferedPrintln("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vertexData.Ancestors);
                 val oldLocalGraph:GrowableMemory[Step]  = ctx.value().localGraph;
                 //For each message recieved
                 for(mess in messages){
@@ -186,7 +204,7 @@ println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vert
                         }
                     }
                 }
-                printLocalGraph(vertexData.localGraph, 0);
+                //printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
                 var LPTargets :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
                 for(targetIDX in localGraphTargets.range()){
@@ -200,7 +218,7 @@ println("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vert
                         }
                     }
                     if(alreadyExistent) {
-println("Skipping repeated target:"+currentTarget);
+//bufferedPrintln("Skipping repeated target:"+currentTarget);
                         continue;
                     }
                     //Find if TP or FP
@@ -211,7 +229,7 @@ println("Skipping repeated target:"+currentTarget);
                             break;
                         }
                     }
-println("Adding target:"+currentTarget);
+//bufferedPrintln("Adding target:"+currentTarget);
                     LPTargets.add(new PredictedLink(currentTarget,isTP));
                 }
 
@@ -240,7 +258,7 @@ println("Adding target:"+currentTarget);
                             val secondStep = firstStep.neighbors(rangeSecondStep);
                             //Found a path
                             if(secondStep.targetId == target.id){
-println("--Found path from "+ctx.id()+" to "+ target.id + " through " + firstStep.targetId);
+//bufferedPrintln("--Found path from "+ctx.id()+" to "+ target.id + " through " + firstStep.targetId);
                                 found = true;
                                 if(secondStep.direction  & !firstDirection) DA++;
                                 if(secondStep.direction  &  firstDirection) AA++;
@@ -258,10 +276,11 @@ println("--Found path from "+ctx.id()+" to "+ target.id + " through " + firstSte
                                 }
                             }
                             if(foundUndirected) {
-println("----REPEAT_UND_PATH"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size "+firstStep.neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.neighbors.size());
+//bufferedPrintln("----REPEAT_UND_PATH"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size "+firstStep.neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.neighbors.size());
                                 continue;
                             }
-println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size "+firstStep.neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.neighbors.size());
+//bufferedPrintln("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size "+firstStep.neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.neighbors.size());
+//bufferedPrintln("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size "+firstStep.neighbors.size()+" adds to AA "+Double.implicit_operator_as(1)/firstStep.neighbors.size());
                             CN_score++;
                             AA_score = AA_score + (1/(Math.log(firstStep.neighbors.size())));
                             RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.neighbors.size());
@@ -269,26 +288,26 @@ println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size 
                         }
                     }
                     //Calculate INF related scores
-                    var ded_score :Double = 0; var ind_score :Double = 0; var inf_log_score :Double = 0; var inf_log_2d_score :Double = 0;
+                    var ded_score :Double = 0; var ind_score :Double = 0; var INF_LOG_score :Double = 0; var INF_LOG_2D_score :Double = 0;
                     if(vertexData.Ancestors > 0){
                         ded_score = AA/vertexData.Ancestors;
-                        inf_log_score = ded_score*Math.log10(vertexData.Ancestors);
-                        inf_log_2d_score = (ded_score*Math.log10(vertexData.Ancestors))*2;
+                        INF_LOG_score = ded_score*Math.log10(vertexData.Ancestors);
+                        INF_LOG_2D_score = (ded_score*Math.log10(vertexData.Ancestors))*2;
                         if(vertexData.Descendants > 0){
                             ind_score = DA/vertexData.Descendants;
-                            inf_log_score = inf_log_score + ind_score*Math.log10(vertexData.Descendants);
-                            inf_log_2d_score = inf_log_2d_score + ind_score*Math.log(vertexData.Descendants);
+                            INF_LOG_score = INF_LOG_score + ind_score*Math.log10(vertexData.Descendants);
+                            INF_LOG_2D_score = INF_LOG_2D_score + ind_score*Math.log10(vertexData.Descendants);
                         }
                     }
                     else {
                         if(vertexData.Descendants > 0){
                             ind_score = DA/vertexData.Descendants;
-                            inf_log_score = ind_score*Math.log10(vertexData.Descendants);
-                            inf_log_2d_score = ind_score*Math.log10(vertexData.Descendants);
+                            INF_LOG_score = ind_score*Math.log10(vertexData.Descendants);
+                            INF_LOG_2D_score = ind_score*Math.log10(vertexData.Descendants);
                         }
                     }
-                    val inf_score = ded_score + ind_score;
-                    val inf_2d_score = (ded_score*2) + ind_score;
+                    val INF_score = ded_score + ind_score;
+                    val INF_2D_score = (ded_score*2) + ind_score;
                     //Store values 
                     if(cn_scores.containsKey(CN_score)){
                         if(target.TP) cn_scores.put(CN_score,new HitRate(cn_scores.get(CN_score)().tp+1,cn_scores.get(CN_score)().fp));
@@ -298,10 +317,60 @@ println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size 
                         if(target.TP) cn_scores.put(CN_score,new HitRate(1,0));
                         else cn_scores.put(CN_score,new HitRate(0,1));
                     }
+                    if(ra_scores.containsKey(RA_score)){
+                        if(target.TP) ra_scores.put(RA_score,new HitRate(ra_scores.get(RA_score)().tp+1,ra_scores.get(RA_score)().fp));
+                        else ra_scores.put(RA_score,new HitRate(ra_scores.get(RA_score)().tp,ra_scores.get(RA_score)().fp+1));
+                    }
+                    else {
+                        if(target.TP) ra_scores.put(RA_score,new HitRate(1,0));
+                        else ra_scores.put(RA_score,new HitRate(0,1));
+                    }
+                    if(aa_scores.containsKey(AA_score)){
+                        if(target.TP) aa_scores.put(AA_score,new HitRate(aa_scores.get(AA_score)().tp+1,aa_scores.get(AA_score)().fp));
+                        else aa_scores.put(AA_score,new HitRate(aa_scores.get(AA_score)().tp,aa_scores.get(AA_score)().fp+1));
+                    }
+                    else {
+                        if(target.TP) aa_scores.put(AA_score,new HitRate(1,0));
+                        else aa_scores.put(AA_score,new HitRate(0,1));
+                    }
+                    if(inf_scores.containsKey(INF_score)){
+                        if(target.TP) inf_scores.put(INF_score,new HitRate(inf_scores.get(INF_score)().tp+1,inf_scores.get(INF_score)().fp));
+                        else inf_scores.put(INF_score,new HitRate(inf_scores.get(INF_score)().tp,inf_scores.get(INF_score)().fp+1));
+                    }
+                    else {
+                        if(target.TP) inf_scores.put(INF_score,new HitRate(1,0));
+                        else inf_scores.put(INF_score,new HitRate(0,1));
+                    }
+                    if(inf_log_scores.containsKey(INF_LOG_score)){
+                        if(target.TP) inf_log_scores.put(INF_LOG_score,new HitRate(inf_log_scores.get(INF_LOG_score)().tp+1,inf_log_scores.get(INF_LOG_score)().fp));
+                        else inf_log_scores.put(INF_LOG_score,new HitRate(inf_log_scores.get(INF_LOG_score)().tp,inf_log_scores.get(INF_LOG_score)().fp+1));
+                    }
+                    else {
+                        if(target.TP) inf_log_scores.put(INF_LOG_score,new HitRate(1,0));
+                        else inf_log_scores.put(INF_LOG_score,new HitRate(0,1));
+                    }
+                    if(inf_2d_scores.containsKey(INF_2D_score)){
+                        if(target.TP) inf_2d_scores.put(INF_2D_score,new HitRate(inf_2d_scores.get(INF_2D_score)().tp+1,inf_2d_scores.get(INF_2D_score)().fp));
+                        else inf_2d_scores.put(INF_2D_score,new HitRate(inf_2d_scores.get(INF_2D_score)().tp,inf_2d_scores.get(INF_2D_score)().fp+1));
+                    }
+                    else {
+                        if(target.TP) inf_2d_scores.put(INF_2D_score,new HitRate(1,0));
+                        else inf_2d_scores.put(INF_2D_score,new HitRate(0,1));
+                    }
+                    if(inf_log_2d_scores.containsKey(INF_LOG_2D_score)){
+                        if(target.TP) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(inf_log_2d_scores.get(INF_LOG_2D_score)().tp+1,inf_log_2d_scores.get(INF_LOG_2D_score)().fp));
+                        else inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(inf_log_2d_scores.get(INF_LOG_2D_score)().tp,inf_log_2d_scores.get(INF_LOG_2D_score)().fp+1));
+                    }
+                    else {
+                        if(target.TP) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(1,0));
+                        else inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(0,1));
+                    }
+//bufferedPrintln("== "+ctx.id()+" has for weight "+INF_score+" TP:"+inf_scores.get(INF_score)().tp+" FP:"+inf_scores.get(INF_score)().fp);
                 } 
                 //Store 0 values, add unrelated TPs and FPs to the ones already found
                 val unrelatedTPsAtZero = vertexData.testCandidates.size()-tpsFound;
-                val unrelatedFPsAtZero = (N*(N-1)) - unrelatedTPsAtZero - LPTargets.size();
+                val unrelatedFPsAtZero = N - 1 - vertexData.Ancestors - unrelatedTPsAtZero - LPTargets.size();
+//bufferedPrintln("=== "+N+" "+unrelatedTPsAtZero+" "+LPTargets.size());
                 if(cn_scores.containsKey(0)) cn_scores.put(0,new HitRate(unrelatedTPsAtZero + cn_scores.get(0)().tp, unrelatedFPsAtZero + cn_scores.get(0)().fp));
                 else cn_scores.put(0,new HitRate(unrelatedTPsAtZero, unrelatedFPsAtZero));
                 if(ra_scores.containsKey(0)) ra_scores.put(0,new HitRate(unrelatedTPsAtZero + ra_scores.get(0)().tp, unrelatedFPsAtZero + ra_scores.get(0)().fp));
@@ -316,6 +385,7 @@ println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size 
                 else inf_2d_scores.put(0,new HitRate(unrelatedTPsAtZero, unrelatedFPsAtZero));
                 if(inf_log_2d_scores.containsKey(0)) inf_log_2d_scores.put(0,new HitRate(unrelatedTPsAtZero + inf_log_2d_scores.get(0)().tp, unrelatedFPsAtZero + inf_log_2d_scores.get(0)().fp));
                 else inf_log_2d_scores.put(0,new HitRate(unrelatedTPsAtZero, unrelatedFPsAtZero));
+//bufferedPrintln("== "+ctx.id()+" has for weight 0 TP:"+cn_scores.get(0)().tp+" FP:"+cn_scores.get(0)().fp);
                 //Store for aggregate
                 output.add(new ScorePair("CN",cn_scores));
                 output.add(new ScorePair("RA",ra_scores));
@@ -324,61 +394,79 @@ println("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size 
                 output.add(new ScorePair("INF_LOG",inf_log_scores));
                 output.add(new ScorePair("INF_2D",inf_2d_scores));
                 output.add(new ScorePair("INF_LOG_2D",inf_log_2d_scores));
-                ctx.aggregate(output);
+                ctx.setValue(new VertexData(output));
 
                 ctx.voteToHalt();
             }
 	    },
-        //Aggregator
-        (aggregation :MemoryChunk[GrowableMemory[ScorePair]]) => predictionAggregator(aggregation),
-//TODO: use the combiner: CombinePaths should take various Message and append them into the same ... is it possible without losing the Ids? The vertex could add its Id to every path before sending it to the combiner. But this increases the size of messages dramatically.
+        null,
+        //(aggregation :MemoryChunk[GrowableMemory[ScorePair]]) => predictionAggregator(aggregation),
+        //TODO: use the combiner: CombinePaths should take various Message and append them into the same ... is it possible without losing the Ids? The vertex could add its Id to every path before sending it to the combiner. But this increases the size of messages dramatically.
 	    //(paths :MemoryChunk[Message]) => combinePaths(paths),
         (superstep :Int, someValue :GrowableMemory[ScorePair]) => (superstep >= 2));
 
+        xpregel.setLogPrinter(Console.ERR, 0);
+        xpregel.iterate[MessageReduce,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, MessageReduce, GrowableMemory[ScorePair]], messages :MemoryChunk[MessageReduce]) => {
+            //In the first superstep all vertices send their data to vertex 0
+            if(ctx.superstep() == 0){
+                val m :MessageReduce = MessageReduce(ctx.value().last_data);
+                ctx.sendMessage(0,m);
+            }
+            //In the second superstep the vertex with Id 0 combines all data and writes results
+            if(ctx.superstep() == 1){
+               ctx.voteToHalt();
+            }
+        },
+        null,
+        (combiner :MemoryChunk[MessageReduce]) => predictionCombiner(combiner),
+        (superstep :Int, someValue :GrowableMemory[ScorePair]) => (superstep >= 2));
         return true;
     }
 
     static def printLocalGraph(lg :GrowableMemory[Step], depth :Long){
-        if(depth==Long.implicit_operator_as(0)) println("-Printing localGraph");
+        if(depth==Long.implicit_operator_as(0)) bufferedPrintln("-Printing localGraph");
         for(range in lg.range()){
             thisStep :Step = lg(range);
             for(i in 0..depth) print("-");
             if(thisStep.direction == true) print(">");
             if(thisStep.direction == false) print("<");
-            println(thisStep.targetId);
+            bufferedPrintln(thisStep.targetId);
             printLocalGraph(thisStep.neighbors,depth+1);
         }
     }
 
-    static def predictionAggregator(allVertexPoints :MemoryChunk[GrowableMemory[ScorePair]]) :GrowableMemory[ScorePair] {
+    static def predictionCombiner(allVertexPoints :MemoryChunk[MessageReduce]) :MessageReduce {
+bufferedPrintln("combiner at " + here.id);
         val dummyN :Long = 11;
         val dummyE :Long = 28;
         val dummyT :Long = 7;
-        if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new GrowableMemory[ScorePair]();
+        if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new MessageReduce(new GrowableMemory[ScorePair]());
+        ret_val :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
         //For each score calculated
-        for(rangeScores in allVertexPoints(0).range()){
-println("---Going IN for score idx:"+rangeScores+" total points: "+allVertexPoints.size());
+        for(rangeScores in allVertexPoints(0).last_data.range()){
+bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
             //Obtain the unique list of weights and their combined tp/fp
             var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
-            val name :String = allVertexPoints(0)(rangeScores).scoreName; 
+            val name :String = allVertexPoints(0).last_data(rangeScores).scoreName; 
             val fw_roc = new FileWriter(name+"_points.roc", FileMode.Create);
             val fw_pr = new FileWriter(name+"_points.pr", FileMode.Create);
             //For each vertex
             for(vertexRange in allVertexPoints.range()){
-                val currentScorePair = allVertexPoints(vertexRange)(rangeScores);
-println("Score Name: "+name+ " vertex idx:"+vertexRange);
+                val currentScorePair = allVertexPoints(vertexRange).last_data(rangeScores);
+bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
                 //For each weight in scorePair
                 for(weight in currentScorePair.weights.keySet()){
                     //If weight existed, increase tp/fp counters, else add it
                     if(reduction.containsKey(weight)) reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp , reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
                     else {
                         reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
-println("Weights found: "+weight);
+bufferedPrintln("Weights found: "+weight);
                     }
                 }
             }
             val SP :ScorePair = new ScorePair(name,reduction);
-println("Total weights found: "+reduction.size());
+            ret_val.add(SP);
+bufferedPrintln("Total weights found: "+reduction.size());
             //Once we have everything reduced in var reduction, we can calculate the points: For each weight calculate the accumulated tp/fp
             var tpTotal :Long = 0; var fpTotal :Long = 0; 
             for(threshold in reduction.keySet()){
@@ -390,12 +478,11 @@ println("Total weights found: "+reduction.size());
                     }
                 }
                 //Calculate points
-println("Weight: "+threshold+" has a total FP:"+fpTotal);
-println("Weight: "+threshold+" has a total TP:"+tpTotal);
-                var roc_x :Double = fpTotal/(dummyN*(dummyN-1)-dummyE);
-                var roc_y :Double = tpTotal/dummyT;
-                var pr_x :Double = tpTotal/dummyT;
-                var pr_y :Double = tpTotal/(tpTotal+fpTotal);
+bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal);
+                var roc_x :Double = fpTotal/Double.implicit_operator_as((dummyN*(dummyN-1)-dummyE));
+                var roc_y :Double = tpTotal/Double.implicit_operator_as(dummyT);
+                var pr_x :Double = tpTotal/Double.implicit_operator_as(dummyT);
+                var pr_y :Double = tpTotal/Double.implicit_operator_as((tpTotal+fpTotal));
                 //Write points
                 val sb_roc = new SStringBuilder();
                 sb_roc.add(roc_x).add(" ").add(roc_y).add("\n");
@@ -407,7 +494,7 @@ println("Weight: "+threshold+" has a total TP:"+tpTotal);
             fw_roc.close();
             fw_pr.close();
         }
-        return new GrowableMemory[ScorePair]();
+        return new MessageReduce(ret_val);
     }
     
     //static def combinePaths(paths : MemoryChunk[Message]) :Message {
