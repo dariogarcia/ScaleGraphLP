@@ -116,27 +116,39 @@ public class LP_INF_local_recursive extends STest {
         
     public static def main(args:Array[String](1)) {
         new LP_INF_local_recursive().run(args);
+        finish for(p in Team.WORLD.placeGroup()) at(p) async { flush(); }
     }
 
     public def run(args :Array[String](1)): Boolean {
         val team = Team.WORLD;
         // load graph from CSV file
-        //Renumbering:To be enabled when using STRINGS!! val graph = Graph.make(CSV.read(args(0),[Type.String as String, Type.String, Type.Byte],true), true);
-        val graph = Graph.make(CSV.read(args(0),[Type.Long as Int, Type.Long, Type.Byte],true));
+        //Renumbering:To be enabled when using STRINGS!! 
+        val graph = Graph.make(CSV.read(args(0),[Type.String, Type.String, Type.Byte],true), true);
+        //val graph = Graph.make(CSV.read(args(0),[Type.Long as Int, Type.Long, Type.Byte],true));
+bufferedPrintln("==Graph.made");
         // create sparse matrix
         val csr = graph.createDistSparseMatrix[Byte](Config.get().dist1d(), "weight", true, false);
+bufferedPrintln("==Matrix created");
         // create xpregel instance
         val xpregel = XPregelGraph.make[VertexData, Byte](csr);
-        xpregel.setLogPrinter(Console.ERR, 0);
+bufferedPrintln("==XPregelGraph.made");
+        //xpregel.setLogPrinter(Console.ERR, 0);
         xpregel.updateInEdge();
+bufferedPrintln("==XPregelGraph Updated edges");
         xpregel.updateInEdgeAndValue();
+bufferedPrintln("==XPregelGraph Updated edges and values");
         val Edges:Long = graph.numberOfEdges();
         val Vertices:Long = graph.numberOfVertices();
-        val N:Long = 11;
+        //val Vertices:Long = 88336; //Wordnet
+        //val TestEdges:Long = 69857; //Wordnet
+        //val Vertices:Long = 116835; //Cyc
+        val TestEdges:Long = 34559; //Cyc
+bufferedPrintln("==Going into iterate");
         xpregel.iterate[Message,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, Message, GrowableMemory[ScorePair]], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
+bufferedPrintln("==Start superstep 0");
                 var localGraph :GrowableMemory[Step] = new GrowableMemory[Step]();
                 var ancestors :Long = 0; var descendants :Long = 0;
                 //Load all outgoing edges of vertex
@@ -205,7 +217,7 @@ public class LP_INF_local_recursive extends STest {
                         }
                     }
                 }
-                //printLocalGraph(vertexData.localGraph, 0);
+//printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
                 var LPTargets :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
                 for(targetIDX in localGraphTargets.range()){
@@ -370,8 +382,8 @@ public class LP_INF_local_recursive extends STest {
                 } 
                 //Store 0 values, add unrelated TPs and FPs to the ones already found
                 val unrelatedTPsAtZero = vertexData.testCandidates.size()-tpsFound;
-                val unrelatedFPsAtZero = N - 1 - vertexData.Ancestors - unrelatedTPsAtZero - LPTargets.size();
-//bufferedPrintln("=== "+N+" "+unrelatedTPsAtZero+" "+LPTargets.size());
+                val unrelatedFPsAtZero = Vertices - 1 - vertexData.Ancestors - unrelatedTPsAtZero - LPTargets.size();
+//bufferedPrintln("=== "+Vertices+" "+unrelatedTPsAtZero+" "+LPTargets.size());
                 if(cn_scores.containsKey(0)) cn_scores.put(0,new HitRate(unrelatedTPsAtZero + cn_scores.get(0)().tp, unrelatedFPsAtZero + cn_scores.get(0)().fp));
                 else cn_scores.put(0,new HitRate(unrelatedTPsAtZero, unrelatedFPsAtZero));
                 if(ra_scores.containsKey(0)) ra_scores.put(0,new HitRate(unrelatedTPsAtZero + ra_scores.get(0)().tp, unrelatedFPsAtZero + ra_scores.get(0)().fp));
@@ -406,6 +418,7 @@ public class LP_INF_local_recursive extends STest {
 	    //(paths :MemoryChunk[Message]) => combinePaths(paths),
         (superstep :Int, someValue :GrowableMemory[ScorePair]) => (superstep >= 2));
 
+        //First part is done. In the second we reduce the data of all vertices by sending it to vertexId=0 and using combiner and compute.
         xpregel.setLogPrinter(Console.ERR, 0);
         xpregel.iterate[MessageReduce,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, MessageReduce, GrowableMemory[ScorePair]], messages :MemoryChunk[MessageReduce]) => {
             //In the first superstep all vertices send their data to vertex 0
@@ -413,16 +426,72 @@ public class LP_INF_local_recursive extends STest {
                 val m :MessageReduce = MessageReduce(ctx.value().last_data);
                 ctx.sendMessage(0,m);
             }
-            //In the second superstep the vertex with Id 0 combines all data and writes results
+            //In the second superstep the vertex with Id 0 combines all partially combined data  and writes results
             if(ctx.superstep() == 1){
-               ctx.voteToHalt();
+                if(messages.size()!=Long.implicit_operator_as(0)){
+                    //For each score calculated
+                    for(rangeScores in messages(0).last_data.range()){
+            bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+messages.size());
+                        //Obtain the unique list of weights and their combined tp/fp
+                        var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                        val name :String = messages(0).last_data(rangeScores).scoreName; 
+                        val fw_roc = new FileWriter(name+"_points.roc", FileMode.Create);
+                        val fw_pr = new FileWriter(name+"_points.pr", FileMode.Create);
+                        //For each vertex
+                        for(vertexRange in messages.range()){
+                            val currentScorePair = messages(vertexRange).last_data(rangeScores);
+            bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
+                            //For each weight in scorePair
+                            for(weight in currentScorePair.weights.keySet()){
+                                //If weight existed, increase tp/fp counters, else add it
+                                if(reduction.containsKey(weight)) {
+bufferedPrintln("Adding Weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
+                                    reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp , reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
+bufferedPrintln("Resultant Weights found: "+weight+ " with TP:"+reduction.get(weight)().tp+" and FP:"+reduction.get(weight)().fp);
+                                }
+                                else {
+                                    reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
+bufferedPrintln("New weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
+                                }
+                            }
+                        }
+                        val SP :ScorePair = new ScorePair(name,reduction);
+                        //ret_val.add(SP);
+bufferedPrintln("Total weights found: "+reduction.size());
+                        //Once we have everything reduced in var reduction, we can calculate the points: For each weight calculate the accumulated tp/fp
+                        for(threshold in reduction.keySet()){
+                            var tpTotal :Long = 0; var fpTotal :Long = 0; 
+                            //Calculate against all weights
+                            for(currentWeight in reduction.keySet()){
+                                if(currentWeight>=threshold){
+                                    tpTotal +=reduction.get(currentWeight)().tp;
+                                    fpTotal +=reduction.get(currentWeight)().fp;
+                                }
+                            }
+                            //Calculate points
+bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal+ " Vertices:"+Vertices+" Edges:"+Edges);
+                            var roc_x :Double = fpTotal/Double.implicit_operator_as((Vertices*(Vertices-1)-Edges));
+                            var roc_y :Double = tpTotal/Double.implicit_operator_as(TestEdges);
+                            var pr_x :Double = tpTotal/Double.implicit_operator_as(TestEdges);
+                            var pr_y :Double = tpTotal/Double.implicit_operator_as((tpTotal+fpTotal));
+                            //Write points
+                            val sb_roc = new SStringBuilder();
+                            sb_roc.add(roc_x).add(" ").add(roc_y).add("\n");
+                            fw_roc.write(sb_roc.result().bytes());
+                            val sb_pr = new SStringBuilder();
+                            sb_pr.add(pr_x).add(" ").add(pr_y).add("\n");
+                            fw_pr.write(sb_pr.result().bytes());
+                        }
+                        fw_roc.close();
+                        fw_pr.close();
+                    }
+                }
+                ctx.voteToHalt();
             }
         },
         null,
         (allVertexPoints :MemoryChunk[MessageReduce]) :MessageReduce => {
     bufferedPrintln("combiner at " + here.id);
-            val dummyN :Long = Vertices;
-            val dummyT :Long = 7;
             if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new MessageReduce(new GrowableMemory[ScorePair]());
             ret_val :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
             //For each score calculated
@@ -431,8 +500,6 @@ public class LP_INF_local_recursive extends STest {
                 //Obtain the unique list of weights and their combined tp/fp
                 var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                 val name :String = allVertexPoints(0).last_data(rangeScores).scoreName; 
-                val fw_roc = new FileWriter(name+"_points.roc", FileMode.Create);
-                val fw_pr = new FileWriter(name+"_points.pr", FileMode.Create);
                 //For each vertex
                 for(vertexRange in allVertexPoints.range()){
                     val currentScorePair = allVertexPoints(vertexRange).last_data(rangeScores);
@@ -440,42 +507,18 @@ public class LP_INF_local_recursive extends STest {
                     //For each weight in scorePair
                     for(weight in currentScorePair.weights.keySet()){
                         //If weight existed, increase tp/fp counters, else add it
-                        if(reduction.containsKey(weight)) reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp , reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
+                        if(reduction.containsKey(weight)) {
+                            reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp ,reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
+    bufferedPrintln("Weights found: "+weight+ " with TP:"+reduction.get(weight)().tp+" and FP:"+reduction.get(weight)().fp);
+                        }
                         else {
                             reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
-    bufferedPrintln("Weights found: "+weight);
+    bufferedPrintln("Weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
                         }
                     }
                 }
                 val SP :ScorePair = new ScorePair(name,reduction);
                 ret_val.add(SP);
-    bufferedPrintln("Total weights found: "+reduction.size());
-                //Once we have everything reduced in var reduction, we can calculate the points: For each weight calculate the accumulated tp/fp
-                var tpTotal :Long = 0; var fpTotal :Long = 0; 
-                for(threshold in reduction.keySet()){
-                    //Calculate against all weights
-                    for(currentWeight in reduction.keySet()){
-                        if(currentWeight>=threshold){
-                            tpTotal +=reduction.get(currentWeight)().tp;
-                            fpTotal +=reduction.get(currentWeight)().fp;
-                        }
-                    }
-                    //Calculate points
-    bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal);
-                    var roc_x :Double = fpTotal/Double.implicit_operator_as((dummyN*(dummyN-1)-Edges));
-                    var roc_y :Double = tpTotal/Double.implicit_operator_as(dummyT);
-                    var pr_x :Double = tpTotal/Double.implicit_operator_as(dummyT);
-                    var pr_y :Double = tpTotal/Double.implicit_operator_as((tpTotal+fpTotal));
-                    //Write points
-                    val sb_roc = new SStringBuilder();
-                    sb_roc.add(roc_x).add(" ").add(roc_y).add("\n");
-                    fw_roc.write(sb_roc.result().bytes());
-                    val sb_pr = new SStringBuilder();
-                    sb_pr.add(pr_x).add(" ").add(pr_y).add("\n");
-                    fw_pr.write(sb_pr.result().bytes());
-                }
-                fw_roc.close();
-                fw_pr.close();
             }
             return new MessageReduce(ret_val);
         },
@@ -494,73 +537,5 @@ public class LP_INF_local_recursive extends STest {
             printLocalGraph(thisStep.neighbors,depth+1);
         }
     }
-
-//    static def predictionCombiner(allVertexPoints :MemoryChunk[MessageReduce]) :MessageReduce {
-//bufferedPrintln("combiner at " + here.id);
-//        val dummyN :Long = 11;
-//        val dummyE :Long = 28;
-//        val dummyT :Long = 7;
-//        if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new MessageReduce(new GrowableMemory[ScorePair]());
-//        ret_val :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
-//        //For each score calculated
-//        for(rangeScores in allVertexPoints(0).last_data.range()){
-//bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
-//            //Obtain the unique list of weights and their combined tp/fp
-//            var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
-//            val name :String = allVertexPoints(0).last_data(rangeScores).scoreName; 
-//            val fw_roc = new FileWriter(name+"_points.roc", FileMode.Create);
-//            val fw_pr = new FileWriter(name+"_points.pr", FileMode.Create);
-//            //For each vertex
-//            for(vertexRange in allVertexPoints.range()){
-//                val currentScorePair = allVertexPoints(vertexRange).last_data(rangeScores);
-//bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
-//                //For each weight in scorePair
-//                for(weight in currentScorePair.weights.keySet()){
-//                    //If weight existed, increase tp/fp counters, else add it
-//                    if(reduction.containsKey(weight)) reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp , reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
-//                    else {
-//                        reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
-//bufferedPrintln("Weights found: "+weight);
-//                    }
-//                }
-//            }
-//            val SP :ScorePair = new ScorePair(name,reduction);
-//            ret_val.add(SP);
-//bufferedPrintln("Total weights found: "+reduction.size());
-//            //Once we have everything reduced in var reduction, we can calculate the points: For each weight calculate the accumulated tp/fp
-//            var tpTotal :Long = 0; var fpTotal :Long = 0; 
-//            for(threshold in reduction.keySet()){
-//                //Calculate against all weights
-//                for(currentWeight in reduction.keySet()){
-//                    if(currentWeight>=threshold){
-//                        tpTotal +=reduction.get(currentWeight)().tp;
-//                        fpTotal +=reduction.get(currentWeight)().fp;
-//                    }
-//                }
-//                //Calculate points
-//bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal);
-//                var roc_x :Double = fpTotal/Double.implicit_operator_as((dummyN*(dummyN-1)-dummyE));
-//                var roc_y :Double = tpTotal/Double.implicit_operator_as(dummyT);
-//                var pr_x :Double = tpTotal/Double.implicit_operator_as(dummyT);
-//                var pr_y :Double = tpTotal/Double.implicit_operator_as((tpTotal+fpTotal));
-//                //Write points
-//                val sb_roc = new SStringBuilder();
-//                sb_roc.add(roc_x).add(" ").add(roc_y).add("\n");
-//                fw_roc.write(sb_roc.result().bytes());
-//                val sb_pr = new SStringBuilder();
-//                sb_pr.add(pr_x).add(" ").add(pr_y).add("\n");
-//                fw_pr.write(sb_pr.result().bytes());
-//            }
-//            fw_roc.close();
-//            fw_pr.close();
-//        }
-//        return new MessageReduce(ret_val);
-//    }
-    
-    //static def combinePaths(paths : MemoryChunk[Message]) :Message {
-    //    //TODO
-    //    val tmp :Message = new Message();
-    //    return tmp;
-    //}
 
 }
