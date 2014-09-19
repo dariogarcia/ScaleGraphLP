@@ -125,30 +125,22 @@ public class LP_INF_local_recursive extends STest {
         //Renumbering:To be enabled when using STRINGS!! 
         val graph = Graph.make(CSV.read(args(0),[Type.String, Type.String, Type.Byte],true), true);
         //val graph = Graph.make(CSV.read(args(0),[Type.Long as Int, Type.Long, Type.Byte],true));
-bufferedPrintln("==Graph.made");
         // create sparse matrix
         val csr = graph.createDistSparseMatrix[Byte](Config.get().dist1d(), "weight", true, false);
-bufferedPrintln("==Matrix created");
         // create xpregel instance
         val xpregel = XPregelGraph.make[VertexData, Byte](csr);
-bufferedPrintln("==XPregelGraph.made");
         //xpregel.setLogPrinter(Console.ERR, 0);
         xpregel.updateInEdge();
-bufferedPrintln("==XPregelGraph Updated edges");
         xpregel.updateInEdgeAndValue();
-bufferedPrintln("==XPregelGraph Updated edges and values");
         val Edges:Long = graph.numberOfEdges();
         val Vertices:Long = graph.numberOfVertices();
-        //val Vertices:Long = 88336; //Wordnet
-        //val TestEdges:Long = 69857; //Wordnet
-        //val Vertices:Long = 116835; //Cyc
-        val TestEdges:Long = 34559; //Cyc
-bufferedPrintln("==Going into iterate");
+        //val TestEdgesWordnet :Long = 69857;
+        //val TestEdgesCyc :Long = 34559;
+        val TestEdges:Long = Long.parse(args(1));
         xpregel.iterate[Message,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, Message, GrowableMemory[ScorePair]], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
-bufferedPrintln("==Start superstep 0");
                 var localGraph :GrowableMemory[Step] = new GrowableMemory[Step]();
                 var ancestors :Long = 0; var descendants :Long = 0;
                 //Load all outgoing edges of vertex
