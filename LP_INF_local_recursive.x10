@@ -62,23 +62,22 @@ public class LP_INF_local_recursive extends STest {
     }
         
     public static struct Message{
-        val id_sender:Long;
-        val messageGraph:GrowableMemory[Step];
-        public def this(i: Long, n: GrowableMemory[Step]){
+        val id_sender :Long;
+        val messageGraph :HashMap[Long,NeighborData];
+        public def this(i: Long, n :HashMap[Long,NeighborData]){
             id_sender = i;
             messageGraph = n;
         }
     }
 
     public static struct VertexData{
-        val localGraph: GrowableMemory[Step];
-        //val testCandidates: GrowableMemory[Long];
+        val localGraph: HashMap[Long,NeighborData];
         val testCandidates: HashMap[Long,Boolean];
         val candidates: GrowableMemory[Long];
         val Descendants: Long;
         val Ancestors: Long;
         val last_data: GrowableMemory[ScorePair];
-        public def this(test: HashMap[Long,Boolean], st: GrowableMemory[Step], d: Long, a: Long){
+        public def this(test: HashMap[Long,Boolean], st: HashMap[Long,NeighborData], d: Long, a: Long){
             localGraph = st;
             testCandidates = test;
             candidates = new GrowableMemory[Long]();
@@ -87,7 +86,7 @@ public class LP_INF_local_recursive extends STest {
             last_data = new GrowableMemory[ScorePair]();
         }
         public def this(last: GrowableMemory[ScorePair]){
-            localGraph = new GrowableMemory[Step]();
+            localGraph = new HashMap[Long,NeighborData]();
             testCandidates = new HashMap[Long,Boolean]();
             candidates = new GrowableMemory[Long]();
             Descendants = 0;
@@ -95,22 +94,18 @@ public class LP_INF_local_recursive extends STest {
             last_data = last;
         }
     }
-    //TODO: convert step into HashMap
-    public static struct Step {
-        //Direction determines if the node is a descendant (0, a vertex pointing to self) or an ancestor (1, a vertex self points to)
-        val direction: x10.lang.Boolean;
-        //Id of vertex related though step
-        val targetId: x10.lang.Long;
+
+    public static struct NeighborData {
+        //Direction determines if the neighbor is a descendant (0, a vertex pointing to self), an ancestor (1, a vertex self points to), or both (2)
+        val direction: x10.lang.Int;
         //Neighbors of that vertex
-        val neighbors: GrowableMemory[Step];
-        public def this(d: x10.lang.Boolean, t: x10.lang.Long) {
+        val neighbors: HashMap[Long,NeighborData];
+        public def this(d: x10.lang.Int) {
             direction = d;
-            targetId = t;
-            neighbors = new GrowableMemory[Step]();
+            neighbors = new HashMap[Long,NeighborData]();
         }
-        public def this(d: x10.lang.Boolean, t: x10.lang.Long, n: GrowableMemory[Step]) {
+        public def this(d: x10.lang.Int, n: HashMap[Long,NeighborData]) {
             direction = d;
-            targetId = t;
             neighbors = n;
         }
     }
@@ -143,7 +138,7 @@ public class LP_INF_local_recursive extends STest {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
-                var localGraph :GrowableMemory[Step] = new GrowableMemory[Step]();
+                var localGraph :HashMap[Long,NeighborData] = new HashMap[Long,NeighborData]();
                 var ancestors :Long = 0; var descendants :Long = 0;
                 //Load all outgoing edges of vertex
                 val tupleOut = ctx.outEdges();
@@ -155,25 +150,32 @@ public class LP_INF_local_recursive extends STest {
                 var testNeighs :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                 //For each vertex connected through an outgoing edges
                 for(idx in weightsOut.range()) {
-                    //If the vertex is connected through an edges with weight = 1
+                    //If the vertex is connected through an edges with weight = 1, add the vertex to list of neighbors
                     if(weightsOut(idx).compareTo(1) == 0){
-                        ancestors++;
-                        //Add the vertex id to the list of one path neighbors
-                        val s = Step(true,idsOut(idx));
-                        localGraph.add(s);
+                        if(localGraph.containsKey(idsOut(idx)) & localGraph.get(idsOut(idx))().direction==0){
+                            localGraph.put(idsOut(idx), new NeighborData(2));
+                            ancestors++;
+                        }
+                        if(!localGraph.containsKey(idsOut(idx))){
+                            localGraph.put(idsOut(idx),new NeighborData(1));
+                            ancestors++;
+                        }
                     }
                     //Otherwise add the vertex as a test neighbour
-                    //else testNeighs.add(idsOut(idx));
                     else testNeighs.put(idsOut(idx),true);
                 }
                 //For each vertex connected through an ingoing edges
                 for(idx in ctx.inEdgesValue().range()) {
-                    //If the vertex is connected through an edges with weight = 1
+                    //If the vertex is connected through an edges with weight = 1, add the vertex to list of neighbors
                     if(ctx.inEdgesValue()(idx).compareTo(1) == 0){
-                        descendants++;
-                        //Add the vertex id to the list of one path neighbors
-                        val s = Step(false,ctx.inEdgesId()(idx));
-                        localGraph.add(s);
+                        if(localGraph.containsKey(idsOut(idx)) & localGraph.get(idsOut(idx))().direction==1){
+                            localGraph.put(idsOut(idx),new NeighborData(2));
+                            descendants++;
+                        }
+                        if(!localGraph.containsKey(idsOut(idx))){
+                            localGraph.put(idsOut(idx),new NeighborData(0));
+                            descendants++;
+                        }
                     }
                 }
                 //Disconnected vertices vote to halt
@@ -193,53 +195,37 @@ public class LP_INF_local_recursive extends STest {
                 //var localGraphTargets :GrowableMemory[Long] = new GrowableMemory[Long]();
                 //Load all one step neighbors
                 var vertexData :VertexData = ctx.value();
-                val oldLocalGraph:GrowableMemory[Step]  = ctx.value().localGraph;
                 //For each message recieved
                 for(mess in messages){
                     val messageId:Long = mess.id_sender;
                     //If the sender is myself, skip it cause I already have that information
                     if(messageId == ctx.id()) continue;
-                    //Seek the sender in the oldLocalGraph
-                    for(rangeCurrentSteps in oldLocalGraph.range()){
-                        val oldStep = oldLocalGraph(rangeCurrentSteps);
-                        if(oldStep.targetId == messageId & vertexData.localGraph(rangeCurrentSteps).neighbors.size()==Long.implicit_operator_as(0)){
-                            //Once found, extend the localGraph adding one additional step per neighbor within the message, (unless already extended)
-                            for(rangeNewSteps in mess.messageGraph.range()){
-                                vertexData.localGraph(rangeCurrentSteps).neighbors.add(new Step(mess.messageGraph(rangeNewSteps).direction, mess.messageGraph(rangeNewSteps).targetId));
-                                //Unless already added or is self, add as target according to localGraph
-                                var found :Boolean = false;
-                                //for(target_idx in localGraphTargets.range()) if(localGraphTargets(target_idx)==mess.messageGraph(rangeNewSteps).targetId) found = true;
-                                //if(!found & mess.messageGraph(rangeNewSteps).targetId != ctx.id()) localGraphTargets.add(mess.messageGraph(rangeNewSteps).targetId);
-                                if(!localGraphTargets.containsKey(mess.messageGraph(rangeNewSteps).targetId) & mess.messageGraph(rangeNewSteps).targetId != ctx.id()) localGraphTargets.put(mess.messageGraph(rangeNewSteps).targetId, true);
+                    //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
+                    if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
+                        for(newStep in mess.messageGraph.entries()){
+                            vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
+                            //Unless already added or is self, add as target according to localGraph
+                            var found :Boolean = false;
+                            if(!localGraphTargets.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
+                                localGraphTargets.put(newStep.getKey(), true);
                             }
                         }
                     }
                 }
-//printLocalGraph(vertexData.localGraph, 0);
+printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
-                //Convert into HashMap id,bool (id,TP)
+//TODO Convert into HashMap id,bool (id,TP)
                 var LPTargets :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
                 for(currentTarget in localGraphTargets.keySet()){
-                    var alreadyExistent :Boolean = false;
-                    for(rangeCurrentSteps in vertexData.localGraph.range()){
-                        val currentStep = vertexData.localGraph(rangeCurrentSteps);
-                        if(currentTarget == currentStep.targetId & currentStep.direction){
-                            alreadyExistent = true;
-                            break;
-                        }
-                    }
-                    if(alreadyExistent) continue;
+                    if(vertexData.localGraph.containsKey(currentTarget) & vertexData.localGraph.get(currentTarget)().direction > 0 ) continue;
                     //Find if TP or FP
                     var isTP :Boolean = false;
-                    //for(TPsIDX in vertexData.testCandidates.range()){
-                    //    if(currentTarget == vertexData.testCandidates(TPsIDX)){
                     if(vertexData.testCandidates.containsKey(currentTarget)){
-                            isTP = true;
-                            break;
-                    //    }
+                        isTP = true;
+                        break;
                     }
-//bufferedPrintln("Adding target:"+currentTarget);
                     LPTargets.add(new PredictedLink(currentTarget,isTP));
+bufferedPrintln("Adding target:"+currentTarget);
                 }
 
                 output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
@@ -259,41 +245,39 @@ public class LP_INF_local_recursive extends STest {
                     var DD :Double = 0; var DA:Double = 0; var AD:Double = 0; var AA:Double = 0;
                     var CN_score :Double = 0; var RA_score:Double = 0; var AA_score:Double = 0;
                     //Seek number of paths of each type
-                    for(rangeFirstStep in vertexData.localGraph.range()){
+                    for(firstStep in vertexData.localGraph.entries()){
                         var found :Boolean = false;
-                        val firstStep = vertexData.localGraph(rangeFirstStep);
-                        var firstDirection :Boolean = firstStep.direction;
-                        for(rangeSecondStep in firstStep.neighbors.range()){
-                            val secondStep = firstStep.neighbors(rangeSecondStep);
-                            //Found a path
-                            if(secondStep.targetId == target.id){
-//bufferedPrintln("--Found path from "+ctx.id()+" to "+ target.id + " through " + firstStep.targetId);
-                                found = true;
-                                if(secondStep.direction  & !firstDirection) DA++;
-                                if(secondStep.direction  &  firstDirection) AA++;
-                                if(!secondStep.direction & !firstDirection) DD++;
-                                if(!secondStep.direction &  firstDirection) AD++;
-                            }
+                        if(firstStep.getValue().neighbors.containsKey(target.id)){
+bufferedPrintln("--Found path from "+ctx.id()+" to "+ target.id + " through " + firstStep.getKey());
+                            found = true;
+                            if(firstStep.getValue().neighbors.get(target.id)().direction == 0 & firstStep.getValue().direction == 0) DD++;
+                            if(firstStep.getValue().neighbors.get(target.id)().direction == 1 & firstStep.getValue().direction == 0) DA++;
+                            if(firstStep.getValue().neighbors.get(target.id)().direction == 1 & firstStep.getValue().direction == 1) AA++;
+                            if(firstStep.getValue().neighbors.get(target.id)().direction == 0 & firstStep.getValue().direction == 1) AD++;
+                            if(firstStep.getValue().neighbors.get(target.id)().direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
+                            if(firstStep.getValue().neighbors.get(target.id)().direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
+                            if(firstStep.getValue().neighbors.get(target.id)().direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
+                            if(firstStep.getValue().neighbors.get(target.id)().direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
+                            if(firstStep.getValue().neighbors.get(target.id)().direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
                         if(found) {
                             var foundUndirected :Boolean = false;
                             for(undirectedIDX in undirectedIds.range()){
-                                if(undirectedIds(undirectedIDX) == firstStep.targetId) {
+                                if(undirectedIds(undirectedIDX) == firstStep.getKey()) {
                                     foundUndirected = true;
                                     break;
                                 }
                             }
                             if(foundUndirected) {
-//bufferedPrintln("----REPEAT_UND_PATH"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size "+firstStep.neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.neighbors.size());
+bufferedPrintln("----REPEAT_UND_PATH"+ctx.id()+"-"+target.id+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
                                 continue;
                             }
-//bufferedPrintln("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size "+firstStep.neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.neighbors.size());
-//bufferedPrintln("----"+ctx.id()+"-"+target.id+"-"+firstStep.targetId+" with neighs size "+firstStep.neighbors.size()+" adds to AA "+Double.implicit_operator_as(1)/firstStep.neighbors.size());
+bufferedPrintln("----"+ctx.id()+"-"+target.id+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
                             CN_score++;
-                            AA_score = AA_score + (1/(Math.log(firstStep.neighbors.size())));
-                            RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.neighbors.size());
-                            undirectedIds.add(firstStep.targetId);
+                            AA_score = AA_score + (1/(Math.log(firstStep.getValue().neighbors.size())));
+                            RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
+                            undirectedIds.add(firstStep.getKey());
                         }
                     }
                     //Calculate INF related scores
@@ -374,12 +358,12 @@ public class LP_INF_local_recursive extends STest {
                         if(target.TP) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(1,0));
                         else inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(0,1));
                     }
-//bufferedPrintln("== "+ctx.id()+" has for weight "+INF_score+" TP:"+inf_scores.get(INF_score)().tp+" FP:"+inf_scores.get(INF_score)().fp);
+bufferedPrintln("== "+ctx.id()+" has for weight "+INF_score+" TP:"+inf_scores.get(INF_score)().tp+" FP:"+inf_scores.get(INF_score)().fp);
                 } 
                 //Store 0 values, add unrelated TPs and FPs to the ones already found
                 val unrelatedTPsAtZero = vertexData.testCandidates.size()-tpsFound;
                 val unrelatedFPsAtZero = actualVertices - 1 - vertexData.Ancestors - unrelatedTPsAtZero - LPTargets.size();
-//bufferedPrintln("=== "+actualVertices+" "+unrelatedTPsAtZero+" "+LPTargets.size());
+bufferedPrintln("=== "+actualVertices+" "+unrelatedTPsAtZero+" "+LPTargets.size());
                 if(cn_scores.containsKey(0)) cn_scores.put(0,new HitRate(unrelatedTPsAtZero + cn_scores.get(0)().tp, unrelatedFPsAtZero + cn_scores.get(0)().fp));
                 else cn_scores.put(0,new HitRate(unrelatedTPsAtZero, unrelatedFPsAtZero));
                 if(ra_scores.containsKey(0)) ra_scores.put(0,new HitRate(unrelatedTPsAtZero + ra_scores.get(0)().tp, unrelatedFPsAtZero + ra_scores.get(0)().fp));
@@ -394,7 +378,7 @@ public class LP_INF_local_recursive extends STest {
                 else inf_2d_scores.put(0,new HitRate(unrelatedTPsAtZero, unrelatedFPsAtZero));
                 if(inf_log_2d_scores.containsKey(0)) inf_log_2d_scores.put(0,new HitRate(unrelatedTPsAtZero + inf_log_2d_scores.get(0)().tp, unrelatedFPsAtZero + inf_log_2d_scores.get(0)().fp));
                 else inf_log_2d_scores.put(0,new HitRate(unrelatedTPsAtZero, unrelatedFPsAtZero));
-//bufferedPrintln("== "+ctx.id()+" has for weight 0 TP:"+cn_scores.get(0)().tp+" FP:"+cn_scores.get(0)().fp);
+bufferedPrintln("== "+ctx.id()+" has for weight 0 TP:"+cn_scores.get(0)().tp+" FP:"+cn_scores.get(0)().fp);
                 //Store for aggregate
                 output.add(new ScorePair("CN",cn_scores));
                 output.add(new ScorePair("RA",ra_scores));
@@ -427,7 +411,7 @@ public class LP_INF_local_recursive extends STest {
                 if(messages.size()!=Long.implicit_operator_as(0)){
                     //For each score calculated
                     for(rangeScores in messages(0).last_data.range()){
-            //bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+messages.size());
+//bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+messages.size());
                         //Obtain the unique list of weights and their combined tp/fp
                         var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                         val name :String = messages(0).last_data(rangeScores).scoreName; 
@@ -436,7 +420,7 @@ public class LP_INF_local_recursive extends STest {
                         //For each vertex
                         for(vertexRange in messages.range()){
                             val currentScorePair = messages(vertexRange).last_data(rangeScores);
-            //bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
+//bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
                             //For each weight in scorePair
                             for(weight in currentScorePair.weights.keySet()){
                                 //If weight existed, increase tp/fp counters, else add it
@@ -487,12 +471,12 @@ public class LP_INF_local_recursive extends STest {
         },
         null,
         (allVertexPoints :MemoryChunk[MessageReduce]) :MessageReduce => {
-    //bufferedPrintln("combiner at " + here.id);
+//bufferedPrintln("combiner at " + here.id);
             if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new MessageReduce(new GrowableMemory[ScorePair]());
             ret_val :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
             //For each score calculated
             for(rangeScores in allVertexPoints(0).last_data.range()){
-    //bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
+//bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
                 //Obtain the unique list of weights and their combined tp/fp
                 var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                 val name :String = allVertexPoints(0).last_data(rangeScores).scoreName; 
@@ -522,15 +506,16 @@ public class LP_INF_local_recursive extends STest {
         return true;
     }
 
-    static def printLocalGraph(lg :GrowableMemory[Step], depth :Long){
+    static def printLocalGraph(lg :HashMap[Long,NeighborData], depth :Long){
         if(depth==Long.implicit_operator_as(0)) bufferedPrintln("-Printing localGraph");
-        for(range in lg.range()){
-            thisStep :Step = lg(range);
+        for(range in lg.entries()){
+            thisNeigh :NeighborData = range.getValue();
             for(i in 0..depth) print("-");
-            if(thisStep.direction == true) print(">");
-            if(thisStep.direction == false) print("<");
-            bufferedPrintln(thisStep.targetId);
-            printLocalGraph(thisStep.neighbors,depth+1);
+            if(thisNeigh.direction == 1) print(">");
+            if(thisNeigh.direction == 0) print("<");
+            if(thisNeigh.direction == 2) print("<>");
+            bufferedPrintln(range.getKey());
+            printLocalGraph(thisNeigh.neighbors,depth+1);
         }
     }
 
