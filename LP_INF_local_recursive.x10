@@ -72,12 +72,12 @@ public class LP_INF_local_recursive extends STest {
 
     public static struct VertexData{
         val localGraph: GrowableMemory[Step];
-        val testCandidates: GrowableMemory[Long];
+        val testCandidates: HashMap[Long,Boolean];
         val candidates: GrowableMemory[Long];
         val Descendants: Long;
         val Ancestors: Long;
         val last_data: GrowableMemory[ScorePair];
-        public def this(test: GrowableMemory[Long], st: GrowableMemory[Step], d: Long, a: Long){
+        public def this(test: HashMap[Long,Boolean], st: GrowableMemory[Step], d: Long, a: Long){
             localGraph = st;
             testCandidates = test;
             candidates = new GrowableMemory[Long]();
@@ -87,7 +87,7 @@ public class LP_INF_local_recursive extends STest {
         }
         public def this(last: GrowableMemory[ScorePair]){
             localGraph = new GrowableMemory[Step]();
-            testCandidates = new GrowableMemory[Long]();
+            testCandidates = new HashMap[Long,Boolean]();
             candidates = new GrowableMemory[Long]();
             Descendants = 0;
             Ancestors = 0;
@@ -150,7 +150,7 @@ public class LP_INF_local_recursive extends STest {
                 val weightsOut = tupleOut.get2();
 //TODO: Optimization: avoid storing twice data of nodes connected in various ways
                 //Store those vertex linked by an outgoing edge which are to be used as test
-                var testNeighs :GrowableMemory[Long] = new GrowableMemory[Long]();
+                var testNeighs :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                 //For each vertex connected through an outgoing edges
                 for(idx in weightsOut.range()) {
                     //If the vertex is connected through an edges with weight = 1
@@ -161,7 +161,7 @@ public class LP_INF_local_recursive extends STest {
                         localGraph.add(s);
                     }
                     //Otherwise add the vertex as a test neighbour
-                    else testNeighs.add(idsOut(idx));
+                    else testNeighs.put(idsOut(idx),false);
                 }
                 //For each vertex connected through an ingoing edges
                 for(idx in ctx.inEdgesValue().range()) {
@@ -236,11 +236,8 @@ public class LP_INF_local_recursive extends STest {
                     }
                     //Find if TP or FP
                     var isTP :Boolean = false;
-                    for(TPsIDX in vertexData.testCandidates.range()){
-                        if(currentTarget == vertexData.testCandidates(TPsIDX)){
-                            isTP = true;
-                            break;
-                        }
+                    if(vertexData.testCandidates.containsKey(currentTarget)){    
+                        isTP = true;
                     }
 //bufferedPrintln("Adding target:"+currentTarget);
                     LPTargets.add(new PredictedLink(currentTarget,isTP));
