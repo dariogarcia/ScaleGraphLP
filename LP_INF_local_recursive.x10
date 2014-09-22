@@ -69,6 +69,7 @@ public class LP_INF_local_recursive extends STest {
             messageGraph = n;
         }
     }
+
     //TODO: convert testCandidates into HashMap
     public static struct VertexData{
         val localGraph: GrowableMemory[Step];
@@ -93,7 +94,16 @@ public class LP_INF_local_recursive extends STest {
             Ancestors = 0;
             last_data = last;
         }
+        public def this(){
+            localGraph = new GrowableMemory[Step]();
+            testCandidates = new GrowableMemory[Long]();
+            candidates = new GrowableMemory[Long]();
+            Descendants = 0;
+            Ancestors = 0;
+            last_data = new GrowableMemory[ScorePair]();
+        }
     }
+
     //TODO: convert step into HashMap
     public static struct Step {
         //Direction determines if the node is a descendant (0, a vertex pointing to self) or an ancestor (1, a vertex self points to)
@@ -132,12 +142,12 @@ public class LP_INF_local_recursive extends STest {
         //xpregel.setLogPrinter(Console.ERR, 0);
         xpregel.updateInEdge();
         xpregel.updateInEdgeAndValue();
-        val Edges:Long = graph.numberOfEdges();
         //val Vertices:Long = graph.numberOfVertices();
-        val actualVertices:Long = Long.parse(args(2));
         //val TestEdgesWordnet :Long = 69857;
         //val TestEdgesCyc :Long = 34559;
         val TestEdges:Long = Long.parse(args(1));
+        val actualVertices:Long = Long.parse(args(2));
+        val Edges:Long = graph.numberOfEdges() - TestEdges;
         xpregel.iterate[Message,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, Message, GrowableMemory[ScorePair]], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
@@ -174,14 +184,17 @@ public class LP_INF_local_recursive extends STest {
                     }
                 }
                 //Disconnected vertices vote to halt
-                if(ancestors==Long.implicit_operator_as(0) && descendants==Long.implicit_operator_as(0)) ctx.voteToHalt();
+                if(ancestors==Long.implicit_operator_as(0) && descendants==Long.implicit_operator_as(0)) {
+                    ctx.setvalue(new VertexData());
+                    ctx.voteToHalt();
+                }
                 //Save the built list of one step neighbors
                 val firstStepRes:VertexData = new VertexData(testNeighs,localGraph,descendants,ancestors);
                 ctx.setValue(firstStepRes);
                 val m :Message = Message(ctx.id(),localGraph);
                 //Send the list to all neighbors connected through positive link
                 //ctx.sendMessageToAllNeighbors(m);
-                for(idx in ctx.inEdgesId()) if(ctx.inEdgesValue()(idx).compareTo(1) == 0) ctx.sendMessage(idx,m);
+                for(idx in ctx.inEdgesId().range()) if(ctx.inEdgesValue()(idx).compareTo(1) == 0) ctx.sendMessage(ctx.inEdgesId()(idx),m);
                 for(idx in idsOut.range())  if(weightsOut(idx).compareTo(1) == 0) ctx.sendMessage(idsOut(idx),m);
             }
             //Second superstep: read the messages, extend the localGraph with the information arriving
@@ -415,15 +428,16 @@ public class LP_INF_local_recursive extends STest {
         xpregel.iterate[MessageReduce,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, MessageReduce, GrowableMemory[ScorePair]], messages :MemoryChunk[MessageReduce]) => {
             //In the first superstep all vertices send their data to vertex 0
             if(ctx.superstep() == 0){
+                if((ctx.value().last_data).size()==Long.implicit_operator_as(0)) ctx.voteToHalt();
                 val m :MessageReduce = MessageReduce(ctx.value().last_data);
                 ctx.sendMessage(0,m);
             }
-            //In the second superstep the vertex with Id 0 combines all partially combined data  and writes results
+            //In the second superstep the vertex with Id 0 combines all partially combined data and writes results
             if(ctx.superstep() == 1){
                 if(messages.size()!=Long.implicit_operator_as(0)){
                     //For each score calculated
                     for(rangeScores in messages(0).last_data.range()){
-            //bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+messages.size());
+//bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+messages.size());
                         //Obtain the unique list of weights and their combined tp/fp
                         var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                         val name :String = messages(0).last_data(rangeScores).scoreName; 
@@ -432,7 +446,7 @@ public class LP_INF_local_recursive extends STest {
                         //For each vertex
                         for(vertexRange in messages.range()){
                             val currentScorePair = messages(vertexRange).last_data(rangeScores);
-            //bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
+//bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
                             //For each weight in scorePair
                             for(weight in currentScorePair.weights.keySet()){
                                 //If weight existed, increase tp/fp counters, else add it
@@ -461,7 +475,7 @@ public class LP_INF_local_recursive extends STest {
                                 }
                             }
                             //Calculate points
-//bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal+ " actualVertices:"+Vertices+" Edges:"+Edges);
+//bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal+ " actualVertices:"+actualVertices+" Edges:"+Edges);
                             var roc_x :Double = fpTotal/Double.implicit_operator_as((actualVertices*(actualVertices-1)-Edges));
                             var roc_y :Double = tpTotal/Double.implicit_operator_as(TestEdges);
                             var pr_x :Double = tpTotal/Double.implicit_operator_as(TestEdges);
@@ -483,35 +497,43 @@ public class LP_INF_local_recursive extends STest {
         },
         null,
         (allVertexPoints :MemoryChunk[MessageReduce]) :MessageReduce => {
-    //bufferedPrintln("combiner at " + here.id);
-            if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new MessageReduce(new GrowableMemory[ScorePair]());
+bufferedPrintln("Entering combiner at " + here.id);
+            if(allVertexPoints.size()==Long.implicit_operator_as(0)){
+bufferedPrintln("Leaving combiner because void" + here.id);
+                return new MessageReduce(new GrowableMemory[ScorePair]());
+            }
+            else bufferedPrintln("Number of elements" + allVertexPoints.size());
             ret_val :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
             //For each score calculated
+try{
             for(rangeScores in allVertexPoints(0).last_data.range()){
-    //bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
+//bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
                 //Obtain the unique list of weights and their combined tp/fp
                 var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                 val name :String = allVertexPoints(0).last_data(rangeScores).scoreName; 
                 //For each vertex
                 for(vertexRange in allVertexPoints.range()){
                     val currentScorePair = allVertexPoints(vertexRange).last_data(rangeScores);
-    //bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
+//bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
                     //For each weight in scorePair
                     for(weight in currentScorePair.weights.keySet()){
                         //If weight existed, increase tp/fp counters, else add it
                         if(reduction.containsKey(weight)) {
                             reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp ,reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
-    //bufferedPrintln("Weights found: "+weight+ " with TP:"+reduction.get(weight)().tp+" and FP:"+reduction.get(weight)().fp);
+//bufferedPrintln("Weights found: "+weight+ " with TP:"+reduction.get(weight)().tp+" and FP:"+reduction.get(weight)().fp);
                         }
                         else {
                             reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
-    //bufferedPrintln("Weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
+//bufferedPrintln("Weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
                         }
                     }
                 }
                 val SP :ScorePair = new ScorePair(name,reduction);
                 ret_val.add(SP);
             }
+}
+catch (e :CheckedThrowable) { e.printStackTrace(); bufferedPrintln("Leaving combiner after exception " + here.id);}
+bufferedPrintln("Leaving combiner at " + here.id);
             return new MessageReduce(ret_val);
         },
         (superstep :Int, someValue :GrowableMemory[ScorePair]) => (superstep >= 2));
