@@ -133,10 +133,11 @@ public class LP_INF_local_recursive extends STest {
         xpregel.updateInEdge();
         xpregel.updateInEdgeAndValue();
         val Edges:Long = graph.numberOfEdges();
-        val Vertices:Long = graph.numberOfVertices();
+        //val Vertices:Long = graph.numberOfVertices();
         //val TestEdgesWordnet :Long = 69857;
         //val TestEdgesCyc :Long = 34559;
         val TestEdges:Long = Long.parse(args(1));
+        val actualVertices:Long = Long.parse(args(2));
         xpregel.iterate[Message,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, Message, GrowableMemory[ScorePair]], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
@@ -172,18 +173,27 @@ public class LP_INF_local_recursive extends STest {
                         localGraph.add(s);
                     }
                 }
+                //Disconnected vertices vote to halt
+                if(ancestors==Long.implicit_operator_as(0) && descendants==Long.implicit_operator_as(0)) {
+                    bufferedPrintln("-"+ctx.id()+" votes to halt");
+                    ctx.voteToHalt();
+                }
                 //Save the built list of one step neighbors
                 val firstStepRes:VertexData = new VertexData(testNeighs,localGraph,descendants,ancestors);
                 ctx.setValue(firstStepRes);
                 val m :Message = Message(ctx.id(),localGraph);
+
+                //Send the list to all neighbors connected through positive link
+                for(idx in ctx.inEdgesId().range()) if(ctx.inEdgesValue()(idx).compareTo(1) == 0) ctx.sendMessage(ctx.inEdgesId()(idx),m);
+                for(idx in idsOut.range())  if(weightsOut(idx).compareTo(1) == 0) ctx.sendMessage(idsOut(idx),m);
+
                 //Send the list to all neighbors
-                //ctx.sendMessageToAllNeighbors(m);
-                for(idx in ctx.inEdgesId()) ctx.sendMessage(idx,m);
-                for(idx in idsOut.range())  ctx.sendMessage(idsOut(idx),m);
+                //for(idx in ctx.inEdgesId()) ctx.sendMessage(ctx.inEdgesValue(idx),m);
+                //for(idx in idsOut.range())  ctx.sendMessage(idsOut(idx),m);
             }
             //Second superstep: read the messages, extend the localGraph with the information arriving
             if(ctx.superstep() == 1){
-                var localGraphTargets :GrowableMemory[Long] = new GrowableMemory[Long]();
+                var localGraphTargets :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                 //Load all one step neighbors
                 var vertexData :VertexData = ctx.value();
 //bufferedPrintln("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vertexData.Ancestors);
@@ -199,12 +209,11 @@ public class LP_INF_local_recursive extends STest {
                         if(oldStep.targetId == messageId & vertexData.localGraph(rangeCurrentSteps).neighbors.size()==Long.implicit_operator_as(0)){
                             //Once found, extend the localGraph adding one additional step per neighbor within the message, (unless already extended)
                             for(rangeNewSteps in mess.messageGraph.range()){
-                                    val newStep :Step = Step(mess.messageGraph(rangeNewSteps).direction, mess.messageGraph(rangeNewSteps).targetId);
-                                    vertexData.localGraph(rangeCurrentSteps).neighbors.add(newStep);
-                                    var found :Boolean = false;
-                                    //Unless already added or is self, add as target according to localGraph
-                                    for(target_idx in localGraphTargets.range()) if(localGraphTargets(target_idx)==mess.messageGraph(rangeNewSteps).targetId) found = true;
-                                    if(!found & mess.messageGraph(rangeNewSteps).targetId != ctx.id()) localGraphTargets.add(mess.messageGraph(rangeNewSteps).targetId);
+                                vertexData.localGraph(rangeCurrentSteps).neighbors.add(new Step(mess.messageGraph(rangeNewSteps).direction, mess.messageGraph(rangeNewSteps).targetId));
+                                //Unless already added or is self, add as target according to localGraph
+                                var found :Boolean = false;
+                                if(!localGraphTargets.containsKey(mess.messageGraph(rangeNewSteps).targetId) & mess.messageGraph(rangeNewSteps).targetId != ctx.id()) localGraphTargets.put(mess.messageGraph(rangeNewSteps).targetId, true);
+
                             }
                         }
                     }
@@ -212,8 +221,7 @@ public class LP_INF_local_recursive extends STest {
 //printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
                 var LPTargets :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
-                for(targetIDX in localGraphTargets.range()){
-                    val currentTarget = localGraphTargets(targetIDX);
+                    for(currentTarget in localGraphTargets.keySet()){
                     var alreadyExistent :Boolean = false;
                     for(rangeCurrentSteps in vertexData.localGraph.range()){
                         val currentStep = vertexData.localGraph(rangeCurrentSteps);
@@ -374,8 +382,8 @@ public class LP_INF_local_recursive extends STest {
                 } 
                 //Store 0 values, add unrelated TPs and FPs to the ones already found
                 val unrelatedTPsAtZero = vertexData.testCandidates.size()-tpsFound;
-                val unrelatedFPsAtZero = Vertices - 1 - vertexData.Ancestors - unrelatedTPsAtZero - LPTargets.size();
-//bufferedPrintln("=== "+Vertices+" "+unrelatedTPsAtZero+" "+LPTargets.size());
+                val unrelatedFPsAtZero = actualVertices - 1 - vertexData.Ancestors - unrelatedTPsAtZero - LPTargets.size();
+//bufferedPrintln("=== "+actualVertices+" "+unrelatedTPsAtZero+" "+LPTargets.size());
                 if(cn_scores.containsKey(0)) cn_scores.put(0,new HitRate(unrelatedTPsAtZero + cn_scores.get(0)().tp, unrelatedFPsAtZero + cn_scores.get(0)().fp));
                 else cn_scores.put(0,new HitRate(unrelatedTPsAtZero, unrelatedFPsAtZero));
                 if(ra_scores.containsKey(0)) ra_scores.put(0,new HitRate(unrelatedTPsAtZero + ra_scores.get(0)().tp, unrelatedFPsAtZero + ra_scores.get(0)().fp));
@@ -461,8 +469,8 @@ public class LP_INF_local_recursive extends STest {
                                 }
                             }
                             //Calculate points
-//bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal+ " Vertices:"+Vertices+" Edges:"+Edges);
-                            var roc_x :Double = fpTotal/Double.implicit_operator_as((Vertices*(Vertices-1)-Edges));
+bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal+ " Vertices:"+actualVertices+" Edges:"+TestEdges);
+                            var roc_x :Double = fpTotal/Double.implicit_operator_as((actualVertices*(actualVertices-1)-Edges));
                             var roc_y :Double = tpTotal/Double.implicit_operator_as(TestEdges);
                             var pr_x :Double = tpTotal/Double.implicit_operator_as(TestEdges);
                             var pr_y :Double = tpTotal/Double.implicit_operator_as((tpTotal+fpTotal));
@@ -483,29 +491,29 @@ public class LP_INF_local_recursive extends STest {
         },
         null,
         (allVertexPoints :MemoryChunk[MessageReduce]) :MessageReduce => {
-    //bufferedPrintln("combiner at " + here.id);
+    bufferedPrintln("combiner at " + here.id);
             if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new MessageReduce(new GrowableMemory[ScorePair]());
             ret_val :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
             //For each score calculated
             for(rangeScores in allVertexPoints(0).last_data.range()){
-    //bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
+    bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
                 //Obtain the unique list of weights and their combined tp/fp
                 var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                 val name :String = allVertexPoints(0).last_data(rangeScores).scoreName; 
                 //For each vertex
                 for(vertexRange in allVertexPoints.range()){
                     val currentScorePair = allVertexPoints(vertexRange).last_data(rangeScores);
-    //bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
+    bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
                     //For each weight in scorePair
                     for(weight in currentScorePair.weights.keySet()){
                         //If weight existed, increase tp/fp counters, else add it
                         if(reduction.containsKey(weight)) {
                             reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp ,reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
-    //bufferedPrintln("Weights found: "+weight+ " with TP:"+reduction.get(weight)().tp+" and FP:"+reduction.get(weight)().fp);
+    bufferedPrintln("Weights found: "+weight+ " with TP:"+reduction.get(weight)().tp+" and FP:"+reduction.get(weight)().fp);
                         }
                         else {
                             reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
-    //bufferedPrintln("Weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
+    bufferedPrintln("Weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
                         }
                     }
                 }
