@@ -1,11 +1,26 @@
 /*
- * Calculates the local INF score of all vertices
+ * Calculates the local score of all vertices and builds the performance roc and pr graphs
+ * 
+ * 1st ITERATION: Evaluate all possible links and store the performance results on each vertex.
+ * V (vertices): list of directly related nodes: HashMap[Long,NeighborData],
+ *              list of vertices which are destination candidates: HashMap[Long,Boolean];
+ *              number of direct descendants: Long;
+ *              number of direct ancestors: Long;
+ *              results of link evaluation, required for post-processing : GrowableMemory[ScorePair];
+ * E (edges) :  1 if the edge is to be used for training, 0 if the edge is to be used for test: Byte
+ * M (messages):id of sender :Long, and context of sender :HashMap[Long,NeighborData];
+ * A (aggregator) 
  *
- * V (vertices) stores a list of paths to other vertices of distance fixed: GrowableMemory[Path],
- *   as well as a list of Ids of those vertices candidates for LP (distance to vertex > 1 || weight of edge to vertex == 0): GrowableMemory[Long]
- * E (edges) store a boolean, 1 if the edge is to be used for training, 0 if the edge is to be used for test: Byte
- * M (messages) must pass lists of paths from one vertex to another: GrowableMemory[Path] as well as the source vertex Id: Long
- * A (aggregator) have no purpose so far: Double
+ * 2nd ITERATION: Combine the performance of all vertices, and reduce it to build the roc and pr graphs.
+ * V (vertices): results achieved in all links with origin itself :GrowableMemory[ScorePair]
+ * E (edges) :  
+ * M (messages): same as V, which is passed to a single vertex for reduction :GrowableMemory[ScorePair]
+ * A (aggregator) same as V, which is passed to a single vertex for reduction :GrowableMemory[ScorePair]
+ *
+ *
+ * RUN INSTRUCTIONS
+ * 1st Parameter: Number of TestEdges, that is edges with weight equal to 0. These should not include the ones regarding disconnected nodes
+ * 2nd Parameter: Number of ActualNodes, that is nodes not disconnected according to edges with weight equal to 1. 
  */
 
 import x10.util.Team;
@@ -64,14 +79,12 @@ public class LP_INF_local_recursive extends STest {
     public static struct VertexData{
         val localGraph :HashMap[Long,NeighborData];
         val testCandidates: HashMap[Long,Boolean];
-        val candidates: GrowableMemory[Long];
         val Descendants: Long;
         val Ancestors: Long;
         val last_data: GrowableMemory[ScorePair];
         public def this(test: HashMap[Long,Boolean], st :HashMap[Long,NeighborData], d: Long, a: Long){
             localGraph = st;
             testCandidates = test;
-            candidates = new GrowableMemory[Long]();
             Descendants = d;
             Ancestors = a;
             last_data = new GrowableMemory[ScorePair]();
@@ -79,15 +92,12 @@ public class LP_INF_local_recursive extends STest {
         public def this(last: GrowableMemory[ScorePair]){
             localGraph = new HashMap[Long,NeighborData]();
             testCandidates = new HashMap[Long,Boolean]();
-            candidates = new GrowableMemory[Long]();
             Descendants = 0;
             Ancestors = 0;
             last_data = last;
         }
         public def this(){
             localGraph = new HashMap[Long,NeighborData]();
-            testCandidates = new HashMap[Long,Boolean]();
-            candidates = new GrowableMemory[Long]();
             Descendants = 0;
             Ancestors = 0;
             last_data = new GrowableMemory[ScorePair]();
