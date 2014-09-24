@@ -45,15 +45,6 @@ public class LP_INF_local_recursive extends STest {
         }
     }
 
-    public static struct PredictedLink{
-        val id:Long;
-        val TP:Boolean;
-        public def this(i: Long, t: Boolean){
-            id = i;
-            TP = t;
-        }
-    }
-    
     public static struct MessageReduce{
         val last_data: GrowableMemory[ScorePair];
         public def this(last: GrowableMemory[ScorePair]){
@@ -228,13 +219,12 @@ public class LP_INF_local_recursive extends STest {
                 }
 //printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
-//TODO: convert into hashmap <id,tp>
-                var LPTargets :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
+                var LPTargets :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                 for(currentTarget in localGraphTargets.keySet()){
                     if(vertexData.localGraph.containsKey(currentTarget)){
                         if(vertexData.localGraph.get(currentTarget)().direction > 0) continue;
                     }
-                    LPTargets.add(new PredictedLink(currentTarget, vertexData.testCandidates.containsKey(currentTarget)));
+                    LPTargets.put(currentTarget, vertexData.testCandidates.containsKey(currentTarget));
 //bufferedPrintln("Adding target:"+currentTarget+ " isTP:"+vertexData.testCandidates.containsKey(currentTarget));
                 }
                 output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
@@ -247,9 +237,8 @@ public class LP_INF_local_recursive extends STest {
                 var inf_log_2d_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                 var tpsFound :Long = 0;
                 //For each target, calculate # of directed (DD/AA/DA/AD) and undirected paths
-                for(targetIDX in LPTargets.range()){
-                    val target = LPTargets(targetIDX);
-                    if(target.TP) tpsFound++;
+                for(target in LPTargets.entries()){
+                    if(target.getValue()) tpsFound++;
 //TODO turn into hashmap long,whatever
                     val undirectedIds :GrowableMemory[Long] = new GrowableMemory[Long]();
                     var DD :Double = 0; var DA :Double = 0; var AD :Double = 0; var AA :Double = 0;
@@ -258,18 +247,18 @@ public class LP_INF_local_recursive extends STest {
 
                     for(firstStep in vertexData.localGraph.entries()){
                         var found :Boolean = false;
-                        if(firstStep.getValue().neighbors.containsKey(target.id)){
-//bufferedPrintln("--Found path from "+ctx.id()+" to "+ target.id + " through " + firstStep.getKey());
+                        if(firstStep.getValue().neighbors.containsKey(target.getKey())){
+//bufferedPrintln("--Found path from "+ctx.id()+" to "+ target.getKey() + " through " + firstStep.getKey());
                             found = true;
-                            if(firstStep.getValue().neighbors.get(target.id)().direction == 0 & firstStep.getValue().direction == 0) DD++;
-                            if(firstStep.getValue().neighbors.get(target.id)().direction == 1 & firstStep.getValue().direction == 0) DA++;
-                            if(firstStep.getValue().neighbors.get(target.id)().direction == 1 & firstStep.getValue().direction == 1) AA++;
-                            if(firstStep.getValue().neighbors.get(target.id)().direction == 0 & firstStep.getValue().direction == 1) AD++;
-                            if(firstStep.getValue().neighbors.get(target.id)().direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
-                            if(firstStep.getValue().neighbors.get(target.id)().direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
-                            if(firstStep.getValue().neighbors.get(target.id)().direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
-                            if(firstStep.getValue().neighbors.get(target.id)().direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
-                            if(firstStep.getValue().neighbors.get(target.id)().direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
+                            if(firstStep.getValue().neighbors.get(target.getKey())().direction == 0 & firstStep.getValue().direction == 0) DD++;
+                            if(firstStep.getValue().neighbors.get(target.getKey())().direction == 1 & firstStep.getValue().direction == 0) DA++;
+                            if(firstStep.getValue().neighbors.get(target.getKey())().direction == 1 & firstStep.getValue().direction == 1) AA++;
+                            if(firstStep.getValue().neighbors.get(target.getKey())().direction == 0 & firstStep.getValue().direction == 1) AD++;
+                            if(firstStep.getValue().neighbors.get(target.getKey())().direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
+                            if(firstStep.getValue().neighbors.get(target.getKey())().direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
+                            if(firstStep.getValue().neighbors.get(target.getKey())().direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
+                            if(firstStep.getValue().neighbors.get(target.getKey())().direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
+                            if(firstStep.getValue().neighbors.get(target.getKey())().direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
                         if(found) {
@@ -281,11 +270,11 @@ public class LP_INF_local_recursive extends STest {
                                 }
                             }
                             if(foundUndirected) {
-//bufferedPrintln("----REPEAT_UND_PATH"+ctx.id()+"-"+target.id+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
+//bufferedPrintln("----REPEAT_UND_PATH"+ctx.id()+"-"+target.getKey()+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
                                 continue;
                             }
-//bufferedPrintln("----"+ctx.id()+"-"+target.id+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
-//bufferedPrintln("----"+ctx.id()+"-"+target.id+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to AA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
+//bufferedPrintln("----"+ctx.id()+"-"+target.getKey()+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
+//bufferedPrintln("----"+ctx.id()+"-"+target.getKey()+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to AA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
                             CN_score++;
                             AA_score = AA_score + (1/(Math.log(firstStep.getValue().neighbors.size())));
                             RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
@@ -315,59 +304,59 @@ public class LP_INF_local_recursive extends STest {
                     val INF_2D_score = (ded_score*2) + ind_score;
                     //Store values 
                     if(cn_scores.containsKey(CN_score)){
-                        if(target.TP) cn_scores.put(CN_score,new HitRate(cn_scores.get(CN_score)().tp+1,cn_scores.get(CN_score)().fp));
+                        if(target.getValue()) cn_scores.put(CN_score,new HitRate(cn_scores.get(CN_score)().tp+1,cn_scores.get(CN_score)().fp));
                         else cn_scores.put(CN_score,new HitRate(cn_scores.get(CN_score)().tp,cn_scores.get(CN_score)().fp+1));
                     }
                     else {
-                        if(target.TP) cn_scores.put(CN_score,new HitRate(1,0));
+                        if(target.getValue()) cn_scores.put(CN_score,new HitRate(1,0));
                         else cn_scores.put(CN_score,new HitRate(0,1));
                     }
                     if(ra_scores.containsKey(RA_score)){
-                        if(target.TP) ra_scores.put(RA_score,new HitRate(ra_scores.get(RA_score)().tp+1,ra_scores.get(RA_score)().fp));
+                        if(target.getValue()) ra_scores.put(RA_score,new HitRate(ra_scores.get(RA_score)().tp+1,ra_scores.get(RA_score)().fp));
                         else ra_scores.put(RA_score,new HitRate(ra_scores.get(RA_score)().tp,ra_scores.get(RA_score)().fp+1));
                     }
                     else {
-                        if(target.TP) ra_scores.put(RA_score,new HitRate(1,0));
+                        if(target.getValue()) ra_scores.put(RA_score,new HitRate(1,0));
                         else ra_scores.put(RA_score,new HitRate(0,1));
                     }
                     if(aa_scores.containsKey(AA_score)){
-                        if(target.TP) aa_scores.put(AA_score,new HitRate(aa_scores.get(AA_score)().tp+1,aa_scores.get(AA_score)().fp));
+                        if(target.getValue()) aa_scores.put(AA_score,new HitRate(aa_scores.get(AA_score)().tp+1,aa_scores.get(AA_score)().fp));
                         else aa_scores.put(AA_score,new HitRate(aa_scores.get(AA_score)().tp,aa_scores.get(AA_score)().fp+1));
                     }
                     else {
-                        if(target.TP) aa_scores.put(AA_score,new HitRate(1,0));
+                        if(target.getValue()) aa_scores.put(AA_score,new HitRate(1,0));
                         else aa_scores.put(AA_score,new HitRate(0,1));
                     }
                     if(inf_scores.containsKey(INF_score)){
-                        if(target.TP) inf_scores.put(INF_score,new HitRate(inf_scores.get(INF_score)().tp+1,inf_scores.get(INF_score)().fp));
+                        if(target.getValue()) inf_scores.put(INF_score,new HitRate(inf_scores.get(INF_score)().tp+1,inf_scores.get(INF_score)().fp));
                         else inf_scores.put(INF_score,new HitRate(inf_scores.get(INF_score)().tp,inf_scores.get(INF_score)().fp+1));
                     }
                     else {
-                        if(target.TP) inf_scores.put(INF_score,new HitRate(1,0));
+                        if(target.getValue()) inf_scores.put(INF_score,new HitRate(1,0));
                         else inf_scores.put(INF_score,new HitRate(0,1));
                     }
                     if(inf_log_scores.containsKey(INF_LOG_score)){
-                        if(target.TP) inf_log_scores.put(INF_LOG_score,new HitRate(inf_log_scores.get(INF_LOG_score)().tp+1,inf_log_scores.get(INF_LOG_score)().fp));
+                        if(target.getValue()) inf_log_scores.put(INF_LOG_score,new HitRate(inf_log_scores.get(INF_LOG_score)().tp+1,inf_log_scores.get(INF_LOG_score)().fp));
                         else inf_log_scores.put(INF_LOG_score,new HitRate(inf_log_scores.get(INF_LOG_score)().tp,inf_log_scores.get(INF_LOG_score)().fp+1));
                     }
                     else {
-                        if(target.TP) inf_log_scores.put(INF_LOG_score,new HitRate(1,0));
+                        if(target.getValue()) inf_log_scores.put(INF_LOG_score,new HitRate(1,0));
                         else inf_log_scores.put(INF_LOG_score,new HitRate(0,1));
                     }
                     if(inf_2d_scores.containsKey(INF_2D_score)){
-                        if(target.TP) inf_2d_scores.put(INF_2D_score,new HitRate(inf_2d_scores.get(INF_2D_score)().tp+1,inf_2d_scores.get(INF_2D_score)().fp));
+                        if(target.getValue()) inf_2d_scores.put(INF_2D_score,new HitRate(inf_2d_scores.get(INF_2D_score)().tp+1,inf_2d_scores.get(INF_2D_score)().fp));
                         else inf_2d_scores.put(INF_2D_score,new HitRate(inf_2d_scores.get(INF_2D_score)().tp,inf_2d_scores.get(INF_2D_score)().fp+1));
                     }
                     else {
-                        if(target.TP) inf_2d_scores.put(INF_2D_score,new HitRate(1,0));
+                        if(target.getValue()) inf_2d_scores.put(INF_2D_score,new HitRate(1,0));
                         else inf_2d_scores.put(INF_2D_score,new HitRate(0,1));
                     }
                     if(inf_log_2d_scores.containsKey(INF_LOG_2D_score)){
-                        if(target.TP) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(inf_log_2d_scores.get(INF_LOG_2D_score)().tp+1,inf_log_2d_scores.get(INF_LOG_2D_score)().fp));
+                        if(target.getValue()) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(inf_log_2d_scores.get(INF_LOG_2D_score)().tp+1,inf_log_2d_scores.get(INF_LOG_2D_score)().fp));
                         else inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(inf_log_2d_scores.get(INF_LOG_2D_score)().tp,inf_log_2d_scores.get(INF_LOG_2D_score)().fp+1));
                     }
                     else {
-                        if(target.TP) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(1,0));
+                        if(target.getValue()) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(1,0));
                         else inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(0,1));
                     }
 //bufferedPrintln("== "+ctx.id()+" has for weight "+INF_score+" TP:"+inf_scores.get(INF_score)().tp+" FP:"+inf_scores.get(INF_score)().fp);
