@@ -239,8 +239,7 @@ public class LP_INF_local_recursive extends STest {
                 //For each target, calculate # of directed (DD/AA/DA/AD) and undirected paths
                 for(target in LPTargets.entries()){
                     if(target.getValue()) tpsFound++;
-//TODO turn into hashmap long,whatever
-                    val undirectedIds :GrowableMemory[Long] = new GrowableMemory[Long]();
+                    val undirectedIds :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                     var DD :Double = 0; var DA :Double = 0; var AD :Double = 0; var AA :Double = 0;
                     var CN_score :Double = 0; var RA_score :Double = 0; var AA_score :Double = 0;
                     //Seek number of paths of each type
@@ -261,24 +260,12 @@ public class LP_INF_local_recursive extends STest {
                             if(firstStep.getValue().neighbors.get(target.getKey())().direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
-                        if(found) {
-                            var foundUndirected :Boolean = false;
-                            for(undirectedIDX in undirectedIds.range()){
-                                if(undirectedIds(undirectedIDX) == firstStep.getKey()) {
-                                    foundUndirected = true;
-                                    break;
-                                }
-                            }
-                            if(foundUndirected) {
-//bufferedPrintln("----REPEAT_UND_PATH"+ctx.id()+"-"+target.getKey()+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
-                                continue;
-                            }
+                        if(found & !(undirectedIds.containsKey(firstStep.getKey()))) {
 //bufferedPrintln("----"+ctx.id()+"-"+target.getKey()+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to RA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
-//bufferedPrintln("----"+ctx.id()+"-"+target.getKey()+"-"+firstStep.getKey()+" with neighs size "+firstStep.getValue().neighbors.size()+" adds to AA "+Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
                             CN_score++;
                             AA_score = AA_score + (1/(Math.log(firstStep.getValue().neighbors.size())));
                             RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
-                            undirectedIds.add(firstStep.getKey());
+                            undirectedIds.put(firstStep.getKey(),true);
                         }
                     }
                     //Calculate INF related scores
