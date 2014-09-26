@@ -226,7 +226,7 @@ public class LP_INF_local_recursive extends STest {
                         }
                     }
                 }
-//printLocalGraph(vertexData.localGraph, 0);
+printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
 //TODO: convert into hashmap <id,tp>
                 var LPTargets :GrowableMemory[PredictedLink] = new GrowableMemory[PredictedLink]();
@@ -417,7 +417,7 @@ public class LP_INF_local_recursive extends STest {
             if(ctx.superstep() == 0){
                 if(ctx.value().last_data.size()==Long.implicit_operator_as(0)) ctx.voteToHalt();
                 else{
-//bufferedPrintln("DEBUG_0:"+(ctx.value().last_data.size()));
+bufferedPrintln("DEBUG_0:"+(ctx.value().last_data.size()));
 
                 val m :MessageReduce = MessageReduce(ctx.value().last_data);
                 ctx.sendMessage(0,m);
@@ -428,32 +428,32 @@ public class LP_INF_local_recursive extends STest {
                 if(messages.size()!=Long.implicit_operator_as(0)){
                     //For each score calculated
                     for(rangeScores in messages(0).last_data.range()){
-//bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+messages.size());
+bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+messages.size());
                         //Obtain the unique list of weights and their combined tp/fp
                         var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                         val name :String = messages(0).last_data(rangeScores).scoreName; 
-                        val fw_roc = new FileWriter(name+"_points.roc_lst", FileMode.Create);
-                        val fw_pr = new FileWriter(name+"_points.pr_lst", FileMode.Create);
+                        val fw_roc = new FileWriter(name+"_points.roc_tst", FileMode.Create);
+                        val fw_pr = new FileWriter(name+"_points.pr_tst", FileMode.Create);
                         //For each vertex
                         for(vertexRange in messages.range()){
                             val currentScorePair = messages(vertexRange).last_data(rangeScores);
-//bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
+bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
                             //For each weight in scorePair
                             for(weight in currentScorePair.weights.keySet()){
                                 //If weight existed, increase tp/fp counters, else add it
                                 if(reduction.containsKey(weight)) {
-//bufferedPrintln("Adding Weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
+bufferedPrintln("Adding Weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
                                     reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp , reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
-//bufferedPrintln("Resultant Weights found: "+weight+ " with TP:"+reduction.get(weight)().tp+" and FP:"+reduction.get(weight)().fp);
+bufferedPrintln("Resultant Weights found: "+weight+ " with TP:"+reduction.get(weight)().tp+" and FP:"+reduction.get(weight)().fp);
                                 }
                                 else {
                                     reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
-//bufferedPrintln("New weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
+bufferedPrintln("New weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
                                 }
                             }
                         }
                         val SP :ScorePair = new ScorePair(name,reduction);
-//bufferedPrintln("Total weights found: "+reduction.size());
+bufferedPrintln("Total weights found: "+reduction.size());
                         //Once we have everything reduced in var reduction, we can calculate the points: For each weight calculate the accumulated tp/fp
                         for(threshold in reduction.keySet()){
                             var tpTotal :Long = 0; var fpTotal :Long = 0; 
@@ -465,7 +465,7 @@ public class LP_INF_local_recursive extends STest {
                                 }
                             }
                             //Calculate points
-//bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal+ " Vertices:"+actualVertices+" Edges:"+TestEdges);
+bufferedPrintln("Weight: "+threshold+" has a total FP:"+fpTotal+ " and TP:"+tpTotal+ " Vertices:"+actualVertices+" Edges:"+TestEdges);
                             var roc_x :Double = fpTotal/Double.implicit_operator_as((actualVertices*(actualVertices-1)-Edges));
                             var roc_y :Double = tpTotal/Double.implicit_operator_as(TestEdges);
                             var pr_x :Double = tpTotal/Double.implicit_operator_as(TestEdges);
@@ -487,31 +487,31 @@ public class LP_INF_local_recursive extends STest {
         },
         null,
         (allVertexPoints :MemoryChunk[MessageReduce]) :MessageReduce => {
-//bufferedPrintln("combiner at " + here.id);
+bufferedPrintln("combiner at " + here.id);
             if(allVertexPoints.size()==Long.implicit_operator_as(0)) return new MessageReduce(new GrowableMemory[ScorePair]());
             ret_val :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
-//bufferedPrintln("DEBUG:" + (allVertexPoints.size()));
-//bufferedPrintln("DEBUG_2:" + allVertexPoints(0).last_data.size());
+bufferedPrintln("DEBUG:" + (allVertexPoints.size()));
+bufferedPrintln("DEBUG_2:" + allVertexPoints(0).last_data.size());
             //For each score calculated
             for(rangeScores in allVertexPoints(0).last_data.range()){
-//bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
+bufferedPrintln("---Going IN for score with idx:"+rangeScores+" total vertex providing data: "+allVertexPoints.size());
                 //Obtain the unique list of weights and their combined tp/fp
                 var reduction :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                 val name :String = allVertexPoints(0).last_data(rangeScores).scoreName; 
                 //For each vertex
                 for(vertexRange in allVertexPoints.range()){
                     val currentScorePair = allVertexPoints(vertexRange).last_data(rangeScores);
-//bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
+bufferedPrintln("Score Name: "+name+ " vertex idx:"+vertexRange);
                     //For each weight in scorePair
                     for(weight in currentScorePair.weights.keySet()){
                         //If weight existed, increase tp/fp counters, else add it
                         if(reduction.containsKey(weight)) {
                             reduction.put(weight, new HitRate(reduction.get(weight)().tp + currentScorePair.weights.get(weight)().tp ,reduction.get(weight)().fp + currentScorePair.weights.get(weight)().fp));
-//bufferedPrintln("Weights found: "+weight+ " with TP:"+reduction.get(weight)().tp+" and FP:"+reduction.get(weight)().fp);
+bufferedPrintln("Weights found: "+weight+ " with TP:"+reduction.get(weight)().tp+" and FP:"+reduction.get(weight)().fp);
                         }
                         else {
                             reduction.put(weight, new HitRate(currentScorePair.weights.get(weight)().tp, currentScorePair.weights.get(weight)().fp));
-//bufferedPrintln("Weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
+bufferedPrintln("Weights found: "+weight+ " with TP:"+currentScorePair.weights.get(weight)().tp+" and FP:"+currentScorePair.weights.get(weight)().fp);
                         }
                     }
                 }
