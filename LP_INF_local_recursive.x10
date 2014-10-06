@@ -111,11 +111,17 @@ public class LP_INF_local_recursive extends STest {
         val neighbors :HashMap[Long,NeighborData];
         public def this(d: x10.lang.Int) {
             direction = d;
+            //neighbors = new HashMap[Long,NeighborData]();
+            neighbors = null;
+        }
+        public def this(nd: NeighborData) {
+            direction = nd.direction;
             neighbors = new HashMap[Long,NeighborData]();
         }
-        public def this(d: x10.lang.Int, n :HashMap[Long,NeighborData]) {
-            direction = d;
-            neighbors = n;
+//TODO:Watch out with this. Used in processing of messages as the begining of superstep 1. Its getting out of hand.
+        public def this() {
+            direction = -1;
+            neighbors = new HashMap[Long,NeighborData]();
         }
     }
         
@@ -205,20 +211,29 @@ public class LP_INF_local_recursive extends STest {
                     for(idx in idsOut.range())  if(weightsOut(idx).compareTo(1) == 0) ctx.sendMessage(idsOut(idx),m);
                 }
             }
-            //Second superstep: read the messages, extend the localGraph with the information arriving
+//            //Second superstep: read the messages, extend the localGraph with the information arriving
             if(ctx.superstep() == 1){
                 var localGraphTargets :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                 //Load all one step neighbors
                 var vertexData :VertexData = ctx.value();
 //bufferedPrintln("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vertexData.Ancestors);
+    
+                //NULL_CODE: Initialize all HashMaps
+                for(currentEntry in vertexData.localGraph.entries()) currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+
                 //For each message recieved
                 for(mess in messages){
                     val messageId:Long = mess.id_sender;
                     //If the sender is myself, skip it cause I already have that information
                     if(messageId == ctx.id()) continue;
+                
+                    //NULL_CODE: Initialize all HashMaps
+                    for(currentEntry in mess.messageGraph.entries()) currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+                    
                     //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
                     if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
                         for(newStep in mess.messageGraph.entries()){
+                            //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),new NeighborData() );
                             vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
                             //Unless already added or is self, add as target according to localGraph
                             var found :Boolean = false;
@@ -396,6 +411,8 @@ public class LP_INF_local_recursive extends STest {
         //TODO: use the combiner: CombinePaths should take various Message and append them into the same ... is it possible without losing the Ids? The vertex could add its Id to every path before sending it to the combiner. But this increases the size of messages dramatically.
 	    //(paths :MemoryChunk[Message]) => combinePaths(paths),
         (superstep :Int, someValue :GrowableMemory[ScorePair]) => (superstep >= 2));
+
+
 
         //First part is done. In the second we reduce the data of all vertices by sending it to vertexId=0 and using combiner and compute.
         xpregel.setLogPrinter(Console.ERR, 0);
