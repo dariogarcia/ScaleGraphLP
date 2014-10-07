@@ -171,13 +171,14 @@ public class LP_INF_local_recursive extends STest {
         val actualVertices:Long = Long.parse(args(2));
 
         //Number of message splits -1. Should be 1 or higher! Never 0.
-        val splitMessage = 3;
+        val splitMessage = 2;
 
         xpregel.iterate[Message,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, Message, GrowableMemory[ScorePair]], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
                 var localGraph :HashMap[Long,NeighborData] = new HashMap[Long,NeighborData]();
+                var localGraphOrig :HashMap[Long,NeighborData] = new HashMap[Long,NeighborData]();
                 var ancestors :Long = 0; var descendants :Long = 0;
                 //Load all outgoing edges of vertex
                 val tupleOut = ctx.outEdges();
@@ -192,11 +193,13 @@ public class LP_INF_local_recursive extends STest {
                         if(localGraph.containsKey(idsOut(idx))){
                             if(localGraph.get(idsOut(idx))().direction == 0){
                                 localGraph.put(idsOut(idx), new NeighborData(2));
+                                localGraphOrig.put(idsOut(idx), new NeighborData(2));
                                 ancestors++;
                             }
                         }
                         if(!localGraph.containsKey(idsOut(idx))){
                             localGraph.put(idsOut(idx), new NeighborData(1));
+                            localGraphOrig.put(idsOut(idx), new NeighborData(1));
                             ancestors++;
                         }
                     }
@@ -210,11 +213,13 @@ public class LP_INF_local_recursive extends STest {
                         if(localGraph.containsKey(ctx.inEdgesId()(idx))){
                             if(localGraph.get(ctx.inEdgesId()(idx))().direction == 1){
                                 localGraph.put(ctx.inEdgesId()(idx),new NeighborData(2));
+                                localGraphOrig.put(ctx.inEdgesId()(idx),new NeighborData(2));
                                 descendants++;
                             }
                         }
                         if(!localGraph.containsKey(ctx.inEdgesId()(idx))){
                             localGraph.put(ctx.inEdgesId()(idx),new NeighborData(0));
+                            localGraphOrig.put(ctx.inEdgesId()(idx),new NeighborData(0));
                             descendants++;
                         }
                     }
@@ -226,9 +231,9 @@ public class LP_INF_local_recursive extends STest {
                 }
                 else{
                     //Save the built list of one step neighbors
-                    val firstStepRes:VertexData = new VertexData(testNeighs,localGraph,localGraph,descendants,ancestors);
+                    val firstStepRes:VertexData = new VertexData(testNeighs,localGraph,localGraphOrig,descendants,ancestors);
                     ctx.setValue(firstStepRes);
-                    val m :Message = Message(ctx.id(),localGraph);
+                    val m :Message = Message(ctx.id(),localGraphOrig);
 
                     //Send the list to all neighbors connected through positive link within this iteration
                     for(idx in ctx.inEdgesId().range()) {
@@ -294,7 +299,7 @@ public class LP_INF_local_recursive extends STest {
                         }
                     }
                 }
-//printLocalGraph(vertexData.localGraph, 0);
+//printLocalGraph(vertexData.localGraphOriginal, 0);
 //bufferedPrintln("FINISH FIRSTPRINT");
 
 
