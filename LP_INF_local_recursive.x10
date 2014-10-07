@@ -262,6 +262,7 @@ public class LP_INF_local_recursive extends STest {
                     }
                 }
 
+
                 //Load all one step neighbors
                 var vertexData :VertexData = ctx.value();
                 //NULL_CODE: Initialize all HashMaps
