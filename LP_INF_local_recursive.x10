@@ -78,31 +78,51 @@ public class LP_INF_local_recursive extends STest {
 
     public static struct VertexData{
         val localGraph :HashMap[Long,NeighborData];
+        val localGraphOriginal :HashMap[Long,NeighborData];
         val testCandidates: HashMap[Long,Boolean];
+        val evalCandidates: HashMap[Long,Boolean];
         val Descendants: Long;
         val Ancestors: Long;
         val last_data: GrowableMemory[ScorePair];
-        public def this(test: HashMap[Long,Boolean], st :HashMap[Long,NeighborData], d: Long, a: Long){
+        public def this(test: HashMap[Long,Boolean], st :HashMap[Long,NeighborData], orig :HashMap[Long,NeighborData], d: Long, a: Long){
             localGraph = st;
+            localGraphOriginal = orig;
             testCandidates = test;
             Descendants = d;
             Ancestors = a;
             last_data = new GrowableMemory[ScorePair]();
+            evalCandidates = new HashMap[Long,Boolean]();
         }
+        //Constructor before return
         public def this(last: GrowableMemory[ScorePair]){
             localGraph = new HashMap[Long,NeighborData]();
+            localGraphOriginal = new HashMap[Long,NeighborData]();
             testCandidates = new HashMap[Long,Boolean]();
             Descendants = 0;
             Ancestors = 0;
             last_data = last;
+            evalCandidates = new HashMap[Long,Boolean]();
         }
+        //Constructor used for empty return of disconnected vertices
         public def this(){
             localGraph = new HashMap[Long,NeighborData]();
+            localGraphOriginal = new HashMap[Long,NeighborData]();
             Descendants = 0;
             Ancestors = 0;
             last_data = new GrowableMemory[ScorePair]();
             testCandidates = new HashMap[Long,Boolean]();
+            evalCandidates = new HashMap[Long,Boolean]();
         }
+        //Constructor used only to add evalCandidates field posteriorly
+//        public def this(vd :VertexData, eval: HashMap[Long,Boolean]){
+//            localGraph = vd.localGraph;
+//              localGraphExtended = vd.localGraphExtended;
+//            testCandidates = vd.testCandidates;
+//            Descendants = vd.Descendants;
+//            Ancestors = vd.Ancestors;
+//            last_data = vd.last_data;
+//            evalCandidates = eval;
+//        }
     }
 
     public static struct NeighborData {
@@ -149,6 +169,10 @@ public class LP_INF_local_recursive extends STest {
         //val TestEdgesCyc :Long = 34559;
         val TestEdges:Long = Long.parse(args(1));
         val actualVertices:Long = Long.parse(args(2));
+
+        //Number of message splits -1. Should be 1 or higher! Never 0.
+        val splitMessage = 3;
+
         xpregel.iterate[Message,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, Message, GrowableMemory[ScorePair]], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
@@ -202,25 +226,50 @@ public class LP_INF_local_recursive extends STest {
                 }
                 else{
                     //Save the built list of one step neighbors
-                    val firstStepRes:VertexData = new VertexData(testNeighs,localGraph,descendants,ancestors);
+                    val firstStepRes:VertexData = new VertexData(testNeighs,localGraph,localGraph,descendants,ancestors);
                     ctx.setValue(firstStepRes);
                     val m :Message = Message(ctx.id(),localGraph);
 
-                    //Send the list to all neighbors connected through positive link
-                    for(idx in ctx.inEdgesId().range()) if(ctx.inEdgesValue()(idx).compareTo(1) == 0) ctx.sendMessage(ctx.inEdgesId()(idx),m);
-                    for(idx in idsOut.range())  if(weightsOut(idx).compareTo(1) == 0) ctx.sendMessage(idsOut(idx),m);
+                    //Send the list to all neighbors connected through positive link within this iteration
+                    for(idx in ctx.inEdgesId().range()) {
+                        if(ctx.inEdgesValue()(idx).compareTo(1) == 0 & ctx.inEdgesId()(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
+                            ctx.sendMessage(ctx.inEdgesId()(idx),m);
+                        }
+                    }
+                    for(idx in idsOut.range())  {
+                        if(weightsOut(idx).compareTo(1) == 0 & idsOut(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
+                            ctx.sendMessage(idsOut(idx),m);
+                        }
+                    }
                 }
             }
-//            //Second superstep: read the messages, extend the localGraph with the information arriving
-            if(ctx.superstep() == 1){
-                var localGraphTargets :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
+            //Second superstep: read the messages, extend the localGraph with the information arriving
+            if(ctx.superstep() > 0 & ctx.superstep() < splitMessage){
+                val m :Message = Message(ctx.id(),ctx.value().localGraphOriginal);
+//bufferedPrintln("Size original local graph: "+ctx.value().localGraphoriginal.size());
+                val tupleOut = ctx.outEdges();
+                val idsOut = tupleOut.get1();
+                val weightsOut = tupleOut.get2();
+                //Send the list to all neighbors connected through positive link within this iteration
+                for(idx in ctx.inEdgesId().range()) {
+                    if(ctx.inEdgesValue()(idx).compareTo(1) == 0 & ctx.inEdgesId()(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
+                        ctx.sendMessage(ctx.inEdgesId()(idx),m);
+                    }
+                }
+                for(idx in idsOut.range())  {
+                    if(weightsOut(idx).compareTo(1) == 0 & idsOut(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
+                        ctx.sendMessage(idsOut(idx),m);
+                    }
+                }
+
                 //Load all one step neighbors
                 var vertexData :VertexData = ctx.value();
-//bufferedPrintln("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vertexData.Ancestors);
-    
                 //NULL_CODE: Initialize all HashMaps
-                for(currentEntry in vertexData.localGraph.entries()) currentEntry.setValue(new NeighborData(currentEntry.getValue()));
-
+                for(currentEntry in vertexData.localGraph.entries()){
+                    if(currentEntry.getValue().neighbors == null){
+                         currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+                    }
+                }
                 //For each message recieved
                 for(mess in messages){
                     val messageId:Long = mess.id_sender;
@@ -228,7 +277,51 @@ public class LP_INF_local_recursive extends STest {
                     if(messageId == ctx.id()) continue;
                 
                     //NULL_CODE: Initialize all HashMaps
-                    for(currentEntry in mess.messageGraph.entries()) currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+                    for(currentEntry in mess.messageGraph.entries()){
+                        if(currentEntry.getValue().neighbors == null) currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+                    }
+                    //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
+                    if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
+                        for(newStep in mess.messageGraph.entries()){
+                            //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),new NeighborData() );
+                            vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
+                            //Unless already added or is self, add as target according to localGraph
+                            var found :Boolean = false;
+                            if(!vertexData.evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
+                                vertexData.evalCandidates.put(newStep.getKey(), true);
+                            }
+                        }
+                    }
+                }
+//printLocalGraph(vertexData.localGraph, 0);
+//bufferedPrintln("FINISH FIRSTPRINT");
+
+
+//bufferedPrintln("OUT-"+vertexData.evalCandidates.size()+" at "+ ctx.superstep());
+                ctx.setValue(vertexData);
+            }
+            //Second superstep: read the messages, extend the localGraph with the information arriving
+            if(ctx.superstep() == splitMessage){
+                //Load all one step neighbors
+                var vertexData :VertexData = ctx.value();
+//bufferedPrintln("-"+ctx.id()+"-Descendants:"+ vertexData.Descendants+" Ancestors:"+ vertexData.Ancestors);
+    
+                //NULL_CODE: Initialize all HashMaps
+                for(currentEntry in vertexData.localGraph.entries()){
+                    if(currentEntry.getValue().neighbors == null){
+                         currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+                    }
+                }
+                //For each message recieved
+                for(mess in messages){
+                    val messageId:Long = mess.id_sender;
+                    //If the sender is myself, skip it cause I already have that information
+                    if(messageId == ctx.id()) continue;
+                
+                    //NULL_CODE: Initialize all HashMaps
+                    for(currentEntry in mess.messageGraph.entries()){
+                        if(currentEntry.getValue().neighbors == null) currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+                    }
                     
                     //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
                     if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
@@ -237,8 +330,8 @@ public class LP_INF_local_recursive extends STest {
                             vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
                             //Unless already added or is self, add as target according to localGraph
                             var found :Boolean = false;
-                            if(!localGraphTargets.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
-                                localGraphTargets.put(newStep.getKey(), true);
+                            if(!vertexData.evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
+                                vertexData.evalCandidates.put(newStep.getKey(), true);
                             }
                         }
                     }
@@ -246,7 +339,7 @@ public class LP_INF_local_recursive extends STest {
 //printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
                 var LPTargets :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
-                for(currentTarget in localGraphTargets.keySet()){
+                for(currentTarget in vertexData.evalCandidates.keySet()){
                     if(vertexData.localGraph.containsKey(currentTarget)){
                         if(vertexData.localGraph.get(currentTarget)().direction > 0) continue;
                     }
@@ -410,7 +503,7 @@ public class LP_INF_local_recursive extends STest {
         //(aggregation :MemoryChunk[GrowableMemory[ScorePair]]) => predictionAggregator(aggregation),
         //TODO: use the combiner: CombinePaths should take various Message and append them into the same ... is it possible without losing the Ids? The vertex could add its Id to every path before sending it to the combiner. But this increases the size of messages dramatically.
 	    //(paths :MemoryChunk[Message]) => combinePaths(paths),
-        (superstep :Int, someValue :GrowableMemory[ScorePair]) => (superstep >= 2));
+        (superstep :Int, someValue :GrowableMemory[ScorePair]) => (superstep >= splitMessage));
 
 
 
