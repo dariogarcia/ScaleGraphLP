@@ -2,13 +2,13 @@
  * Calculates the local score of all vertices and builds the performance roc and pr graphs
  * 
  * 1st ITERATION: Evaluate all possible links and store the performance results on each vertex.
- * V (vertices): list of directly related nodes: HashMap[Long,NeighborData],
- *              list of vertices which are destination candidates: HashMap[Long,Boolean];
+ * V (vertices): list of directly related nodes: GrowableMemory[Pair[Long,NeighborData] ],
+ *              list of vertices which are destination candidates: GrowableMemory[Pair[Long,Boolean] ];
  *              number of direct descendants: Long;
  *              number of direct ancestors: Long;
  *              results of link evaluation, required for post-processing : GrowableMemory[ScorePair];
  * E (edges) :  1 if the edge is to be used for training, 0 if the edge is to be used for test: Byte
- * M (messages):id of sender :Long, and context of sender :HashMap[Long,NeighborData];
+ * M (messages):id of sender :Long, and context of sender :GrowableMemory[Pair[Long,NeighborData] ];
  * A (aggregator) 
  *
  * 2nd ITERATION: Combine the performance of all vertices, and reduce it to build the roc and pr graphs.
@@ -24,7 +24,6 @@
  */
 
 import x10.util.Team;
-import x10.util.HashMap;
 import x10.util.Pair;
 import org.scalegraph.util.GrowableMemory;
 import org.scalegraph.util.MemoryChunk;
@@ -70,49 +69,49 @@ public class LP_INF_local_recursive extends STest {
         
     public static struct Message{
         val id_sender:Long;
-        val messageGraph :HashMap[Long,NeighborData];
-        public def this(i: Long, n :HashMap[Long,NeighborData]){
+        val messageGraph :GrowableMemory[Pair[Long,NeighborData] ];
+        public def this(i: Long, n :GrowableMemory[Pair[Long,NeighborData] ]){
             id_sender = i;
             messageGraph = n;
         }
     }
 
     public static struct VertexData{
-        val localGraph :HashMap[Long,NeighborData];
-        val localGraphOriginal :HashMap[Long,NeighborData];
-        val testCandidates: HashMap[Long,Boolean];
-        val evalCandidates: HashMap[Long,Boolean];
+        val localGraph :GrowableMemory[Pair[Long,NeighborData] ];
+        val localGraphOriginal :GrowableMemory[Pair[Long,NeighborData] ];
+        val testCandidates: GrowableMemory[Long];
+        val evalCandidates: GrowableMemory[Long];
         val Descendants: Long;
         val Ancestors: Long;
         val last_data: GrowableMemory[ScorePair];
-        public def this(test: HashMap[Long,Boolean], st :HashMap[Long,NeighborData], orig :HashMap[Long,NeighborData], d: Long, a: Long){
+        public def this(test: GrowableMemory[Long], st :GrowableMemory[Pair[Long,NeighborData] ], orig :GrowableMemory[Pair[Long,NeighborData] ], d: Long, a: Long){
             localGraph = st;
             localGraphOriginal = orig;
             testCandidates = test;
             Descendants = d;
             Ancestors = a;
             last_data = new GrowableMemory[ScorePair]();
-            evalCandidates = new HashMap[Long,Boolean]();
+            evalCandidates = new GrowableMemory[Long]();
         }
         //Constructor before return
-        public def this(last: GrowableMemory[ScorePair], orig :HashMap[Long,NeighborData]){
-            localGraph = new HashMap[Long,NeighborData]();
+        public def this(last: GrowableMemory[ScorePair], orig :GrowableMemory[Pair[Long,NeighborData] ]){
+            localGraph = new GrowableMemory[Pair[Long,NeighborData] ]();
             localGraphOriginal = orig;
-            testCandidates = new HashMap[Long,Boolean]();
+            testCandidates = new GrowableMemory[Long]();
             Descendants = 0;
             Ancestors = 0;
             last_data = last;
-            evalCandidates = new HashMap[Long,Boolean]();
+            evalCandidates = new GrowableMemory[Long]();
         }
         //Constructor used for empty return of disconnected vertices
         public def this(){
-            localGraph = new HashMap[Long,NeighborData]();
-            localGraphOriginal = new HashMap[Long,NeighborData]();
+            localGraph = new GrowableMemory[Pair[Long,NeighborData] ]();
+            localGraphOriginal = new GrowableMemory[Pair[Long,NeighborData] ]();
             Descendants = 0;
             Ancestors = 0;
             last_data = new GrowableMemory[ScorePair]();
-            testCandidates = new HashMap[Long,Boolean]();
-            evalCandidates = new HashMap[Long,Boolean]();
+            testCandidates = new GrowableMemory[Long]();
+            evalCandidates = new GrowableMemory[Long]();
         }
     }
 
@@ -168,49 +167,66 @@ public class LP_INF_local_recursive extends STest {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all  ut-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
-                var localGraph :HashMap[Long,NeighborData] = new HashMap[Long,NeighborData]();
-                var localGraphOrig :HashMap[Long,NeighborData] = new HashMap[Long,NeighborData]();
+                var localGraph :GrowableMemory[Pair[Long,NeighborData] ] = new GrowableMemory[Pair[Long,NeighborData] ]();
+                var localGraphOrig :GrowableMemory[Pair[Long,NeighborData] ] = new GrowableMemory[Pair[Long,NeighborData] ]();
                 var ancestors :Long = 0; var descendants :Long = 0;
                 //Load all outgoing edges of vertex
                 val tupleOut = ctx.outEdges();
                 val idsOut = tupleOut.get1();
                 val weightsOut = tupleOut.get2();
                 //Store those vertex linked by an outgoing edge which are to be used as test
-                var testNeighs :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
+                var testNeighs :GrowableMemory[Long] = new GrowableMemory[Long]();
                 //For each vertex connected through an outgoing edges
                 for(idx in weightsOut.range()) {
-                    //If the vertex is connected through an edge with weight = 1, add the vertex to list of neighbors
+                    //If the vertex is connected through a non-tets edge, add the vertex to list of neighbors with the directionality
                     if(weightsOut(idx).compareTo(1) == 0){
-                        if(localGraph.containsKey(idsOut(idx))){
-                            if(localGraph.get(idsOut(idx))().direction == 0){
-                                localGraph.put(idsOut(idx), new NeighborData(2));
-                                localGraphOrig.put(idsOut(idx), new NeighborData(2));
-                                ancestors++;
+                        var localFound :Boolean = false;
+                        for(localIDX in localGraph.range()){
+                            if(localGraph(localIDX).first == idsOut(idx)){
+                                localFound = true;
+                                if(localGraph(localIDX).second.direction == 0){
+                                    localGraph(localIDX) = new Pair[Long,NeighborData] (idsOut(idx),new NeighborData(2));
+                                    localGraphOrig(localIDX) = new Pair[Long,NeighborData] (idsOut(idx),new NeighborData(2));
+                                    ancestors++;
+                                }
                             }
                         }
-                        if(!localGraph.containsKey(idsOut(idx))){
-                            localGraph.put(idsOut(idx), new NeighborData(1));
-                            localGraphOrig.put(idsOut(idx), new NeighborData(1));
+                        if(!localFound){
+                            localGraph.add(new Pair[Long,NeighborData] (idsOut(idx), new NeighborData(1)));
+                            localGraphOrig.add(new Pair[Long,NeighborData] (idsOut(idx), new NeighborData(1)));
                             ancestors++;
                         }
                     }
-                    //Otherwise add the vertex as a test neighbour
-                    else testNeighs.put(idsOut(idx),true);
+                    //Otherwise add the vertex as a test neighbour if new
+                    else {
+                        var testFound :Boolean = false;
+                        for(testIDX in testNeighs.range()){
+                            if(testNeighs(testIDX)==idsOut(idx)){
+                                testFound = true;
+                                break;
+                            }
+                        }
+                        if(!testFound) testNeighs.add(idsOut(idx));
+                    }
                 }
                 //For each vertex connected through an ingoing edges
                 for(idx in ctx.inEdgesValue().range()) {
                     //If the vertex is connected through an edge with weight = 1, add the vertex to list of neighbors
                     if(ctx.inEdgesValue()(idx).compareTo(1) == 0){
-                        if(localGraph.containsKey(ctx.inEdgesId()(idx))){
-                            if(localGraph.get(ctx.inEdgesId()(idx))().direction == 1){
-                                localGraph.put(ctx.inEdgesId()(idx),new NeighborData(2));
-                                localGraphOrig.put(ctx.inEdgesId()(idx),new NeighborData(2));
-                                descendants++;
+                        var localFound :Boolean = false;
+                        for(localIDX in localGraph.range()){
+                            if(localGraph(localIDX).first==ctx.inEdgesId()(idx)){
+                                localFound = true;
+                                if(localGraph(localIDX).second.direction == 1){
+                                    localGraph(localIDX) = new Pair[Long,NeighborData] (ctx.inEdgesId()(idx),new NeighborData(2));
+                                    localGraphOrig(localIDX) = new Pair[Long,NeighborData] (ctx.inEdgesId()(idx),new NeighborData(2));
+                                    descendants++;
+                                }
                             }
                         }
-                        if(!localGraph.containsKey(ctx.inEdgesId()(idx))){
-                            localGraph.put(ctx.inEdgesId()(idx),new NeighborData(0));
-                            localGraphOrig.put(ctx.inEdgesId()(idx),new NeighborData(0));
+                        if(!localFound){
+                            localGraph.add(new Pair[Long,NeighborData] (ctx.inEdgesId()(idx), new NeighborData(0)));
+                            localGraphOrig.add(new Pair[Long,NeighborData] (ctx.inEdgesId()(idx), new NeighborData(0)));
                             descendants++;
                         }
                     }
@@ -268,9 +284,10 @@ public class LP_INF_local_recursive extends STest {
                     //Load all one step neighbors
                     var vertexData :VertexData = ctx.value();
                     //NULL_CODE: Initialize all HashMaps
-                    for(currentEntry in vertexData.localGraph.entries()){
-                        if(currentEntry.getValue().neighbors == null){
-                             currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+                    //TODO check if this can be removed now that we do not have hashmaps
+                    for(currentIDX in vertexData.localGraph.range()){
+                        if(vertexData.localGraph(currentIDX).second.neighbors == null){
+                             vertexData.localGraph(currentIDX) = new Pair[Long,NeighborData] (vertexData.localGraph(currentIDX).first,new NeighborData(vertexData.localGraph(currentIDX).second));
                         }
                     }
                     //For each message recieved
@@ -278,37 +295,58 @@ public class LP_INF_local_recursive extends STest {
                         val messageId:Long = mess.id_sender;
                         //If the sender is myself, skip it cause I already have that information
                         if(messageId == ctx.id()) continue;
-                    
-                        //NULL_CODE: Initialize all HashMaps
-                        for(currentEntry in mess.messageGraph.entries()){
-                            if(currentEntry.getValue().neighbors == null) currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+                        //NULL_CODE: Initialize all structs
+                        //TODO check if this can be removed now that we do not have hashmaps
+                        for(currentIDX in mess.messageGraph.range()){
+                            if(mess.messageGraph(currentIDX).second.neighbors == null) mess.messageGraph(currentIDX) = new Pair[Long,NeighborData] (mess.messageGraph(currentIDX).first,new NeighborData(mess.messageGraph(currentIDX).second));
                         }
-                        
                         //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
-                        if(vertexData.localGraph.get(messageId)().neighbors.size()== Long.implicit_operator_as(0)){
-                            for(newStep in mess.messageGraph.entries()){
-                                //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
-                                vertexData.localGraph(messageId)().neighbors.add(new Pair[Long,NeighborData](newStep.getKey(),newStep.getValue()));
-                                //Unless already added or is self, add as target according to localGraph
-                                var found :Boolean = false;
-                                if(!vertexData.evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
-                                    vertexData.evalCandidates.put(newStep.getKey(), true);
+                        for(vertexIDX in vertexData.localGraph.range()){
+                            if(vertexData.localGraph(vertexIDX).first==messageId){
+                                if(vertexData.localGraph(vertexIDX).second.neighbors.size()==Long.implicit_operator_as(0)){
+                                    for(newStepIDX in mess.messageGraph.range()){
+                                        val newStep = mess.messageGraph(newStepIDX);
+                                        vertexData.localGraph(vertexIDX).second.neighbors.add(new Pair[Long,NeighborData](newStep.first,newStep.second));
+                                        //Unless already added or is self, add as target according to localGraph
+                                        if(newStep.first != ctx.id()){
+                                            var evalFound :Boolean = false;
+                                            for(evalIDX in vertexData.evalCandidates.range()){
+                                                if(vertexData.evalCandidates(evalIDX) == newStep.first) {
+                                                    evalFound = true;
+                                                    break;
+                                                }
+                                            }
+                                            if(!evalFound)vertexData.evalCandidates.add(newStep.first);
+                                        }
+                                    }
                                 }
+                                break;
                             }
                         }
                     }
 //printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
                 var LPTargets :GrowableMemory[Pair[Long,Boolean] ] = new GrowableMemory[Pair[Long,Boolean] ] ();
-                for(currentTarget in vertexData.evalCandidates.keySet()){
+                for(currentIDX in vertexData.evalCandidates.range()){
+                    val currentTarget = vertexData.evalCandidates(currentIDX);
                     //If outedge exists it is not target
-                    if(vertexData.localGraph.containsKey(currentTarget)){
-                        if(vertexData.localGraph.get(currentTarget)().direction > 0) continue;
+                    var outEdge :Boolean = false;
+                    for(vertexIDX in vertexData.localGraph.range()){
+                        if(vertexData.localGraph(vertexIDX).first == currentTarget){
+                            if(vertexData.localGraph(vertexIDX).second.direction > 0) outEdge = true;
+                            break;
+                        }
                     }
+                    if(outEdge) continue;
                     //Otherwise add it to the Growable, together with it being TP
-                    LPTargets.add(new Pair[Long,Boolean] (currentTarget,vertexData.testCandidates.containsKey(currentTarget)));                   
-                    //LPTargets.put(currentTarget, vertexData.testCandidates.containsKey(currentTarget));
-//bufferedPrintln("Adding target:"+currentTarget+ " isTP:"+vertexData.testCandidates.containsKey(currentTarget));
+                    var tp :Boolean = false;
+                    for(testIDX in vertexData.testCandidates.range()){
+                        if(vertexData.testCandidates(testIDX) == currentTarget){
+                            tp = true;
+                            break;
+                        }
+                    }
+                    LPTargets.add(new Pair[Long,Boolean] (currentTarget,tp));                   
                 }
                 output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
                 var cn_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
@@ -335,37 +373,38 @@ public class LP_INF_local_recursive extends STest {
                     var DD :Double = 0; var DA :Double = 0; var AD :Double = 0; var AA :Double = 0;
                     var CN_score :Double = 0; var RA_score :Double = 0; var AA_score :Double = 0;
                     //Seek if the target can be reached through each possible firstStep, and calculate num and type of paths
-                    for(firstStep in vertexData.localGraph.entries()){
+                    for(firstIDX in  vertexData.localGraph.range()){
+                        val firstStep = vertexData.localGraph(firstIDX);
                         var newPathFound :Boolean = false;
-                        for(neighIDX in firstStep.getValue().neighbors.range()){
-                            if(firstStep.getValue().neighbors(neighIDX).first == target.first){
-                                val neigh = firstStep.getValue().neighbors(neighIDX);
+                        for(neighIDX in firstStep.second.neighbors.range()){
+                            if(firstStep.second.neighbors(neighIDX).first == target.first){
+                                val neigh = firstStep.second.neighbors(neighIDX);
                                 newPathFound = true;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 0) DD++;
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 0) DA++;
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 1) AA++;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 1) AD++;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
+                                if(neigh.second.direction == 0 & firstStep.second.direction == 0) DD++;
+                                if(neigh.second.direction == 1 & firstStep.second.direction == 0) DA++;
+                                if(neigh.second.direction == 1 & firstStep.second.direction == 1) AA++;
+                                if(neigh.second.direction == 0 & firstStep.second.direction == 1) AD++;
+                                if(neigh.second.direction == 0 & firstStep.second.direction == 2) {DD++; AD++;}
+                                if(neigh.second.direction == 1 & firstStep.second.direction == 2) {DA++; AA++;}
+                                if(neigh.second.direction == 2 & firstStep.second.direction == 0) {DA++; DD++;}
+                                if(neigh.second.direction == 2 & firstStep.second.direction == 1) {AA++; AD++;}
+                                if(neigh.second.direction == 2 & firstStep.second.direction == 2) {DD++; AD++; DA++; AA++;}
                                 break;
                             }
                         }
                         //New directed path found, check if an undirected path was already added
                         var undFound :Boolean = false;
                         for(undIDX in undirectedIds.range()){
-                            if(undirectedIds(undIDX) == firstStep.getKey()){
+                            if(undirectedIds(undIDX) == firstStep.first){
                                 undFound = true;
                                 break;
                             }
                         }
                         if(newPathFound & !undFound) {
                             CN_score++;
-                            AA_score = AA_score + (1/(Math.log(firstStep.getValue().neighbors.size())));
-                            RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
-                            undirectedIds.add(firstStep.getKey());
+                            AA_score = AA_score + (1/(Math.log(firstStep.second.neighbors.size())));
+                            RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.second.neighbors.size());
+                            undirectedIds.add(firstStep.first);
                         }
                     }
                     //Calculate INF related scores
@@ -504,7 +543,7 @@ public class LP_INF_local_recursive extends STest {
                 output.add(new ScorePair("INF_LOG",inf_log_scores));
                 output.add(new ScorePair("INF_2D",inf_2d_scores));
                 output.add(new ScorePair("INF_LOG_2D",inf_log_2d_scores));
-                ctx.setValue(new VertexData(output,new HashMap[Long,NeighborData]()));
+                ctx.setValue(new VertexData(output,new GrowableMemory[Pair[Long,NeighborData] ]()));
                 return;
                 }
             }
@@ -522,46 +561,67 @@ public class LP_INF_local_recursive extends STest {
                 //Load all one step neighbors
                 var vertexData :VertexData = ctx.value();
                 //NULL_CODE: Initialize all HashMaps
-                for(currentEntry in vertexData.localGraph.entries()){
-                    if(currentEntry.getValue().neighbors == null){
-                         currentEntry.setValue(new NeighborData(currentEntry.getValue()));
-                    }
+                for(currentIDX in vertexData.localGraph.range()){
+                        if(vertexData.localGraph(currentIDX).second.neighbors == null){
+                             vertexData.localGraph(currentIDX) = new Pair[Long,NeighborData] (vertexData.localGraph(currentIDX).first,new NeighborData(vertexData.localGraph(currentIDX).second));
+                        }
                 }
                 //For each message recieved
                 for(mess in messages){
                     val messageId:Long = mess.id_sender;
                     //If the sender is myself, skip it cause I already have that information
                     if(messageId == ctx.id()) continue;
-                
-                    //NULL_CODE: Initialize all HashMaps
-                    for(currentEntry in mess.messageGraph.entries()){
-                        if(currentEntry.getValue().neighbors == null) currentEntry.setValue(new NeighborData(currentEntry.getValue()));
-                    }
-                    
+                    //TODO check if this can be removed now that we do not have hashmaps
+                    for(currentIDX in mess.messageGraph.range()){
+                        if(mess.messageGraph(currentIDX).second.neighbors == null) mess.messageGraph(currentIDX) = new Pair[Long,NeighborData] (mess.messageGraph(currentIDX).first,new NeighborData(mess.messageGraph(currentIDX).second));
+                    } 
                     //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
-                    if(vertexData.localGraph.get(messageId)().neighbors.size()==Long.implicit_operator_as(0)){
-                        for(newStep in mess.messageGraph.entries()){
-                            vertexData.localGraph(messageId)().neighbors.add(new Pair[Long,NeighborData](newStep.getKey(),newStep.getValue()));
-                            //Unless already added or is self, add as target according to localGraph
-                            var found :Boolean = false;
-                            if(!vertexData.evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
-                                vertexData.evalCandidates.put(newStep.getKey(), true);
+                    for(vertexIDX in vertexData.localGraph.range()){
+                        if(vertexData.localGraph(vertexIDX).first==messageId){
+                            if(vertexData.localGraph(vertexIDX).second.neighbors.size()==Long.implicit_operator_as(0)){
+                                for(newStepIDX in mess.messageGraph.range()){
+                                    val newStep = mess.messageGraph(newStepIDX);
+                                    vertexData.localGraph(vertexIDX).second.neighbors.add(new Pair[Long,NeighborData](newStep.first,newStep.second));
+                                    //Unless already added or is self, add as target according to localGraph
+                                    if(newStep.first != ctx.id()){
+                                        var evalFound :Boolean = false;
+                                        for(evalIDX in vertexData.evalCandidates.range()){
+                                            if(vertexData.evalCandidates(evalIDX) == newStep.first) {
+                                                evalFound = true;
+                                                break;
+                                            }
+                                        }
+                                        if(!evalFound)vertexData.evalCandidates.add(newStep.first);
+                                    }
+                                }
                             }
+                            break;
                         }
-                    }
+                    }                
                 }
 //printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
                 var LPTargets :GrowableMemory[Pair[Long,Boolean] ] = new GrowableMemory[Pair[Long,Boolean] ] ();
-                for(currentTarget in vertexData.evalCandidates.keySet()){
+                for(currentIDX in vertexData.evalCandidates.range()){
+                    val currentTarget = vertexData.evalCandidates(currentIDX);
                     //If outedge exists it is not target
-                    if(vertexData.localGraph.containsKey(currentTarget)){
-                        if(vertexData.localGraph.get(currentTarget)().direction > 0) continue;
+                    var outEdge :Boolean = false;
+                    for(vertexIDX in vertexData.localGraph.range()){
+                        if(vertexData.localGraph(vertexIDX).first == currentTarget){
+                            if(vertexData.localGraph(vertexIDX).second.direction > 0) outEdge = true;
+                            break;
+                        }
                     }
+                    if(outEdge) continue;
                     //Otherwise add it to the Growable, together with it being TP
-                    LPTargets.add(new Pair[Long,Boolean] (currentTarget,vertexData.testCandidates.containsKey(currentTarget)));                   
-                    //LPTargets.put(currentTarget, vertexData.testCandidates.containsKey(currentTarget));
-//bufferedPrintln("Adding target:"+currentTarget+ " isTP:"+vertexData.testCandidates.containsKey(currentTarget));
+                    var tp :Boolean = false;
+                    for(testIDX in vertexData.testCandidates.range()){
+                        if(vertexData.testCandidates(testIDX) == currentTarget){
+                            tp = true;
+                            break;
+                        }
+                    }
+                    LPTargets.add(new Pair[Long,Boolean] (currentTarget,tp));
                 }
                 output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
                 var cn_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
@@ -588,37 +648,38 @@ public class LP_INF_local_recursive extends STest {
                     var DD :Double = 0; var DA :Double = 0; var AD :Double = 0; var AA :Double = 0;
                     var CN_score :Double = 0; var RA_score :Double = 0; var AA_score :Double = 0;
                     //Seek if the target can be reached through each possible firstStep, and calculate num and type of paths
-                    for(firstStep in vertexData.localGraph.entries()){
+                    for(firstIDX in  vertexData.localGraph.range()){
+                        val firstStep = vertexData.localGraph(firstIDX);
                         var newPathFound :Boolean = false;
-                        for(neighIDX in firstStep.getValue().neighbors.range()){
-                            if(firstStep.getValue().neighbors(neighIDX).first == target.first){
-                                val neigh = firstStep.getValue().neighbors(neighIDX);
+                        for(neighIDX in firstStep.second.neighbors.range()){
+                            if(firstStep.second.neighbors(neighIDX).first == target.first){
+                                val neigh = firstStep.second.neighbors(neighIDX);
                                 newPathFound = true;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 0) DD++;
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 0) DA++;
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 1) AA++;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 1) AD++;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
+                                if(neigh.second.direction == 0 & firstStep.second.direction == 0) DD++;
+                                if(neigh.second.direction == 1 & firstStep.second.direction == 0) DA++;
+                                if(neigh.second.direction == 1 & firstStep.second.direction == 1) AA++;
+                                if(neigh.second.direction == 0 & firstStep.second.direction == 1) AD++;
+                                if(neigh.second.direction == 0 & firstStep.second.direction == 2) {DD++; AD++;}
+                                if(neigh.second.direction == 1 & firstStep.second.direction == 2) {DA++; AA++;}
+                                if(neigh.second.direction == 2 & firstStep.second.direction == 0) {DA++; DD++;}
+                                if(neigh.second.direction == 2 & firstStep.second.direction == 1) {AA++; AD++;}
+                                if(neigh.second.direction == 2 & firstStep.second.direction == 2) {DD++; AD++; DA++; AA++;}
                                 break;
                             }
                         }
                         //New directed path found, check if an undirected path was already added
                         var undFound :Boolean = false;
                         for(undIDX in undirectedIds.range()){
-                            if(undirectedIds(undIDX) == firstStep.getKey()){
+                            if(undirectedIds(undIDX) == firstStep.first){
                                 undFound = true;
                                 break;
                             }
                         }
                         if(newPathFound & !undFound) {
                             CN_score++;
-                            AA_score = AA_score + (1/(Math.log(firstStep.getValue().neighbors.size())));
-                            RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
-                            undirectedIds.add(firstStep.getKey());
+                            AA_score = AA_score + (1/(Math.log(firstStep.second.neighbors.size())));
+                            RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.second.neighbors.size());
+                            undirectedIds.add(firstStep.first);
                         }
                     }
                     //Calculate INF related scores
@@ -757,7 +818,7 @@ public class LP_INF_local_recursive extends STest {
                 output.add(new ScorePair("INF_LOG",inf_log_scores));
                 output.add(new ScorePair("INF_2D",inf_2d_scores));
                 output.add(new ScorePair("INF_LOG_2D",inf_log_2d_scores));
-                ctx.setValue(new VertexData(output,new HashMap[Long,NeighborData]()));
+                ctx.setValue(new VertexData(output,new GrowableMemory[Pair[Long,NeighborData] ]()));
 
                 ctx.voteToHalt();
             }
