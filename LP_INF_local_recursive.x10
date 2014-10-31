@@ -119,7 +119,7 @@ public class LP_INF_local_recursive extends STest {
     public static struct NeighborData {
         //Direction determines if node is descendant (0, a vertex pointing to self) or ancestor (1, a vertex self points to). 2 means both
         val direction: x10.lang.Int;
-        val neighbors :GrowableMemory[Pair[Long,NeighborData] ];
+        val neighbors :HashMap[Long,NeighborData];
         public def this(d: x10.lang.Int) {
             direction = d;
             //neighbors = new GrowableMemory[Pair[Long,NeighborData] ]();
@@ -127,12 +127,12 @@ public class LP_INF_local_recursive extends STest {
         }
         public def this(nd: NeighborData) {
             direction = nd.direction;
-            neighbors = new GrowableMemory[Pair[Long,NeighborData] ]();
+            neighbors = new HashMap[Long,NeighborData]();
         }
 //TODO:Watch out with this. Used in processing of messages as the begining of superstep 1. Its getting out of hand.
         public def this() {
             direction = -1;
-            neighbors = new GrowableMemory[Pair[Long,NeighborData] ]();
+            neighbors = new HashMap[Long,NeighborData]();
         }
     }
         
@@ -285,10 +285,10 @@ public class LP_INF_local_recursive extends STest {
                         }
                         
                         //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
-                        if(vertexData.localGraph.get(messageId)().neighbors.size()== Long.implicit_operator_as(0)){
+                        if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
                             for(newStep in mess.messageGraph.entries()){
-                                //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
-                                vertexData.localGraph(messageId)().neighbors.add(new Pair[Long,NeighborData](newStep.getKey(),newStep.getValue()));
+                                vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
+                                //vertexData.localGraph(messageId)().neighbors.add(new Pair[Long,NeighborData](newStep.getKey(),newStep.getValue()));
                                 //Unless already added or is self, add as target according to localGraph
                                 var found :Boolean = false;
                                 if(!vertexData.evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
@@ -337,26 +337,22 @@ public class LP_INF_local_recursive extends STest {
                     //Seek if the target can be reached through each possible firstStep, and calculate num and type of paths
                     for(firstStep in vertexData.localGraph.entries()){
                         var newPathFound :Boolean = false;
-                        for(neighIDX in firstStep.getValue().neighbors.range()){
-                            if(firstStep.getValue().neighbors(neighIDX).first == target.first){
-                                val neigh = firstStep.getValue().neighbors(neighIDX);
-                                newPathFound = true;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 0) DD++;
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 0) DA++;
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 1) AA++;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 1) AD++;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
-                                break;
-                            }
+                        if(firstStep.getValue().neighbors.containsKey(target.first)){
+                            newPathFound = true;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 0) DD++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 0) DA++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 1) AA++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 1) AD++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
                         var undFound :Boolean = false;
                         for(undIDX in undirectedIds.range()){
-                            if(undirectedIds(undIDX) == firstStep.getKey()){
+                           if(undirectedIds(undIDX) == firstStep.getKey()){
                                 undFound = true;
                                 break;
                             }
@@ -539,9 +535,9 @@ public class LP_INF_local_recursive extends STest {
                     }
                     
                     //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
-                    if(vertexData.localGraph.get(messageId)().neighbors.size()==Long.implicit_operator_as(0)){
+                    if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
                         for(newStep in mess.messageGraph.entries()){
-                            vertexData.localGraph(messageId)().neighbors.add(new Pair[Long,NeighborData](newStep.getKey(),newStep.getValue()));
+                            vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
                             //Unless already added or is self, add as target according to localGraph
                             var found :Boolean = false;
                             if(!vertexData.evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
@@ -590,26 +586,22 @@ public class LP_INF_local_recursive extends STest {
                     //Seek if the target can be reached through each possible firstStep, and calculate num and type of paths
                     for(firstStep in vertexData.localGraph.entries()){
                         var newPathFound :Boolean = false;
-                        for(neighIDX in firstStep.getValue().neighbors.range()){
-                            if(firstStep.getValue().neighbors(neighIDX).first == target.first){
-                                val neigh = firstStep.getValue().neighbors(neighIDX);
-                                newPathFound = true;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 0) DD++;
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 0) DA++;
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 1) AA++;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 1) AD++;
-                                if(neigh.second.direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
-                                if(neigh.second.direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
-                                if(neigh.second.direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
-                                break;
-                            }
+                        if(firstStep.getValue().neighbors.containsKey(target.first)){
+                            newPathFound = true;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 0) DD++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 0) DA++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 1) AA++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 1) AD++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
                         var undFound :Boolean = false;
                         for(undIDX in undirectedIds.range()){
-                            if(undirectedIds(undIDX) == firstStep.getKey()){
+                           if(undirectedIds(undIDX) == firstStep.getKey()){
                                 undFound = true;
                                 break;
                             }
@@ -891,18 +883,18 @@ public class LP_INF_local_recursive extends STest {
         return true;
     }
 
-    static def printLocalGraph(lg :GrowableMemory[Pair[Long,NeighborData] ], depth :Long){
-        if(depth==Long.implicit_operator_as(0)) bufferedPrintln("-Printing localGraph");
-        for(rangeIDX in lg.range()){
-            val range = lg(rangeIDX);
-            thisStep :NeighborData = range.second;
-            for(i in 0..depth) print("-");
-            if(thisStep.direction == 0) print("<");
-            if(thisStep.direction == 1) print(">");
-            if(thisStep.direction == 2) print("<>");
-            bufferedPrintln(range.first);
-            printLocalGraph(thisStep.neighbors,depth+1);
-        }
-    }
+//    static def printLocalGraph(lg :GrowableMemory[Pair[Long,NeighborData] ], depth :Long){
+//        if(depth==Long.implicit_operator_as(0)) bufferedPrintln("-Printing localGraph");
+//        for(rangeIDX in lg.range()){
+//            val range = lg(rangeIDX);
+//            thisStep :NeighborData = range.second;
+//            for(i in 0..depth) print("-");
+//            if(thisStep.direction == 0) print("<");
+//            if(thisStep.direction == 1) print(">");
+//            if(thisStep.direction == 2) print("<>");
+//            bufferedPrintln(range.first);
+//            printLocalGraph(thisStep.neighbors,depth+1);
+//        }
+//    }
 
 }
