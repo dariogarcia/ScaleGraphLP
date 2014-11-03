@@ -80,12 +80,12 @@ public class LP_INF_local_recursive extends STest {
     public static struct VertexData{
         val localGraph :HashMap[Long,NeighborData];
         val localGraphOriginal :HashMap[Long,NeighborData];
-        val testCandidates: HashMap[Long,Boolean];
+        val testCandidates: GrowableMemory[Long];
         val evalCandidates: HashMap[Long,Boolean];
         val Descendants: Long;
         val Ancestors: Long;
         val last_data: GrowableMemory[ScorePair];
-        public def this(test: HashMap[Long,Boolean], st :HashMap[Long,NeighborData], orig :HashMap[Long,NeighborData], d: Long, a: Long){
+        public def this(test: GrowableMemory[Long], st :HashMap[Long,NeighborData], orig :HashMap[Long,NeighborData], d: Long, a: Long){
             localGraph = st;
             localGraphOriginal = orig;
             testCandidates = test;
@@ -98,7 +98,7 @@ public class LP_INF_local_recursive extends STest {
         public def this(last: GrowableMemory[ScorePair], orig :HashMap[Long,NeighborData]){
             localGraph = new HashMap[Long,NeighborData]();
             localGraphOriginal = orig;
-            testCandidates = new HashMap[Long,Boolean]();
+            testCandidates = new GrowableMemory[Long]();
             Descendants = 0;
             Ancestors = 0;
             last_data = last;
@@ -111,7 +111,7 @@ public class LP_INF_local_recursive extends STest {
             Descendants = 0;
             Ancestors = 0;
             last_data = new GrowableMemory[ScorePair]();
-            testCandidates = new HashMap[Long,Boolean]();
+            testCandidates = new GrowableMemory[Long]();
             evalCandidates = new HashMap[Long,Boolean]();
         }
     }
@@ -120,6 +120,7 @@ public class LP_INF_local_recursive extends STest {
         //Direction determines if node is descendant (0, a vertex pointing to self) or ancestor (1, a vertex self points to). 2 means both
         val direction: x10.lang.Int;
         val neighbors :HashMap[Long,NeighborData];
+        //val neighbors :GrowableMemory[Pair[Long,NeighborData] ];
         public def this(d: x10.lang.Int) {
             direction = d;
             //neighbors = new GrowableMemory[Pair[Long,NeighborData] ]();
@@ -128,11 +129,13 @@ public class LP_INF_local_recursive extends STest {
         public def this(nd: NeighborData) {
             direction = nd.direction;
             neighbors = new HashMap[Long,NeighborData]();
+            //neighbors = new GrowableMemory[Pair[Long,NeighborData] ]();
         }
 //TODO:Watch out with this. Used in processing of messages as the begining of superstep 1. Its getting out of hand.
         public def this() {
             direction = -1;
             neighbors = new HashMap[Long,NeighborData]();
+            //neighbors = new GrowableMemory[Pair[Long,NeighborData] ]();
         }
     }
         
@@ -176,7 +179,7 @@ public class LP_INF_local_recursive extends STest {
                 val idsOut = tupleOut.get1();
                 val weightsOut = tupleOut.get2();
                 //Store those vertex linked by an outgoing edge which are to be used as test
-                var testNeighs :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
+                var testNeighs :GrowableMemory[Long] = new GrowableMemory[Long]();
                 //For each vertex connected through an outgoing edges
                 for(idx in weightsOut.range()) {
                     //If the vertex is connected through an edge with weight = 1, add the vertex to list of neighbors
@@ -195,7 +198,7 @@ public class LP_INF_local_recursive extends STest {
                         }
                     }
                     //Otherwise add the vertex as a test neighbour
-                    else testNeighs.put(idsOut(idx),true);
+                    else testNeighs.add(idsOut(idx));
                 }
                 //For each vertex connected through an ingoing edges
                 for(idx in ctx.inEdgesValue().range()) {
@@ -306,7 +309,15 @@ public class LP_INF_local_recursive extends STest {
                         if(vertexData.localGraph.get(currentTarget)().direction > 0) continue;
                     }
                     //Otherwise add it to the Growable, together with it being TP
-                    LPTargets.add(new Pair[Long,Boolean] (currentTarget,vertexData.testCandidates.containsKey(currentTarget)));                   
+                    var testFound :Boolean = false;
+                    for(testIDX in vertexData.testCandidates.range()) {
+                        if(vertexData.testCandidates(testIDX)==currentTarget) {
+                            testFound = true;
+                            break;
+                        }
+                    }
+                    LPTargets.add(new Pair[Long,Boolean] (currentTarget,testFound));
+                    //LPTargets.add(new Pair[Long,Boolean] (currentTarget,vertexData.testCandidates.containsKey(currentTarget)));
                     //LPTargets.put(currentTarget, vertexData.testCandidates.containsKey(currentTarget));
 //bufferedPrintln("Adding target:"+currentTarget+ " isTP:"+vertexData.testCandidates.containsKey(currentTarget));
                 }
@@ -338,16 +349,16 @@ public class LP_INF_local_recursive extends STest {
                     for(firstStep in vertexData.localGraph.entries()){
                         var newPathFound :Boolean = false;
                         if(firstStep.getValue().neighbors.containsKey(target.first)){
-                            newPathFound = true;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 0) DD++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 0) DA++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 1) AA++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 1) AD++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
+                             newPathFound = true;
+                             if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 0) DD++;
+                             if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 0) DA++;
+                             if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 1) AA++;
+                             if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 1) AD++;
+                             if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 2) {DD++; AD++;}
+                             if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 2) {DA++; AA++;}
+                             if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 0) {DA++; DD++;}
+                             if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 1) {AA++; AD++;}
+                             if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
                         var undFound :Boolean = false;
@@ -537,6 +548,7 @@ public class LP_INF_local_recursive extends STest {
                     //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
                     if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
                         for(newStep in mess.messageGraph.entries()){
+                            //vertexData.localGraph(messageId)().neighbors.add(new Pair[Long,NeighborData](newStep.getKey(),newStep.getValue()));
                             vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
                             //Unless already added or is self, add as target according to localGraph
                             var found :Boolean = false;
@@ -555,9 +567,16 @@ public class LP_INF_local_recursive extends STest {
                         if(vertexData.localGraph.get(currentTarget)().direction > 0) continue;
                     }
                     //Otherwise add it to the Growable, together with it being TP
-                    LPTargets.add(new Pair[Long,Boolean] (currentTarget,vertexData.testCandidates.containsKey(currentTarget)));                   
+                    var testFound :Boolean = false;
+                    for(testIDX in vertexData.testCandidates.range()) {
+                        if(vertexData.testCandidates(testIDX)==currentTarget) {
+                            testFound = true;
+                            break;
+                        }
+                    }
+                    LPTargets.add(new Pair[Long,Boolean] (currentTarget,testFound));
+                    //LPTargets.add(new Pair[Long,Boolean] (currentTarget,vertexData.testCandidates.containsKey(currentTarget)));
                     //LPTargets.put(currentTarget, vertexData.testCandidates.containsKey(currentTarget));
-//bufferedPrintln("Adding target:"+currentTarget+ " isTP:"+vertexData.testCandidates.containsKey(currentTarget));
                 }
                 output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
                 var cn_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
@@ -588,15 +607,15 @@ public class LP_INF_local_recursive extends STest {
                         var newPathFound :Boolean = false;
                         if(firstStep.getValue().neighbors.containsKey(target.first)){
                             newPathFound = true;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 0) DD++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 0) DA++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 1) AA++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 1) AD++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction == 2) {DD++; AD++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction == 2) {DA++; AA++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 0) {DA++; DD++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 1) {AA++; AD++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction == 2) {DD++; AD++; DA++; AA++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 0) DD++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 0) DA++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 1) AA++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 1) AD++;
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 2) {DD++; AD++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 2) {DA++; AA++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 0) {DA++; DD++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 1) {AA++; AD++;}
+                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
                         var undFound :Boolean = false;
