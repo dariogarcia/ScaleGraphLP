@@ -163,10 +163,12 @@ public class LP_INF_local_recursive extends STest {
         //val TestEdgesCyc :Long = 34559;
         val TestEdges:Long = Long.parse(args(1));
         val actualVertices:Long = Long.parse(args(2));
-
         //Number of message splits -1. Should be 1 or higher! Never 0.
-        val splitMessage = 2;
-
+        val splitMessage =  Int.parse(args(3));
+        if(splitMessage < 1) {
+            bufferedPrintln("Too few steps defined as third parameter. Minim steps is 1");
+            return false;
+        }
         xpregel.iterate[Message,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, Message, GrowableMemory[ScorePair]], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all  ut-edges as path with one step: <1,Id>. Also, send paths to all vertices
@@ -348,31 +350,35 @@ public class LP_INF_local_recursive extends STest {
                     //Seek if the target can be reached through each possible firstStep, and calculate num and type of paths
                     for(firstStep in vertexData.localGraph.entries()){
                         var newPathFound :Boolean = false;
+                        val first_dir = firstStep.getValue().direction;
+                        val first_key = firstStep.getKey();
+                        val first_degree = firstStep.getValue().neighbors.size();
                         if(firstStep.getValue().neighbors.containsKey(target.first)){
+                             val second_dir = firstStep.getValue().neighbors.get(target.first)().direction;
                              newPathFound = true;
-                             if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 0) DD++;
-                             if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 0) DA++;
-                             if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 1) AA++;
-                             if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 1) AD++;
-                             if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 2) {DD++; AD++;}
-                             if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 2) {DA++; AA++;}
-                             if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 0) {DA++; DD++;}
-                             if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 1) {AA++; AD++;}
-                             if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 2) {DD++; AD++; DA++; AA++;}
+                             if(second_dir == 0 & first_dir == 0) DD++;
+                             if(second_dir == 1 & first_dir == 0) DA++;
+                             if(second_dir == 1 & first_dir == 1) AA++;
+                             if(second_dir == 0 & first_dir == 1) AD++;
+                             if(second_dir == 0 & first_dir == 2) {DD++; AD++;}
+                             if(second_dir == 1 & first_dir == 2) {DA++; AA++;}
+                             if(second_dir == 2 & first_dir == 0) {DA++; DD++;}
+                             if(second_dir == 2 & first_dir == 1) {AA++; AD++;}
+                             if(second_dir == 2 & first_dir == 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
                         var undFound :Boolean = false;
                         for(undIDX in undirectedIds.range()){
-                           if(undirectedIds(undIDX) == firstStep.getKey()){
+                           if(undirectedIds(undIDX) == first_key){
                                 undFound = true;
                                 break;
                             }
                         }
                         if(newPathFound & !undFound) {
                             CN_score++;
-                            AA_score = AA_score + (1/(Math.log(firstStep.getValue().neighbors.size())));
-                            RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
-                            undirectedIds.add(firstStep.getKey());
+                            AA_score = AA_score + (1/(Math.log(first_degree)));
+                            RA_score = RA_score + (Double.implicit_operator_as(1)/first_degree);
+                            undirectedIds.add(first_key);
                         }
                     }
                     //Calculate INF related scores
@@ -605,31 +611,35 @@ public class LP_INF_local_recursive extends STest {
                     //Seek if the target can be reached through each possible firstStep, and calculate num and type of paths
                     for(firstStep in vertexData.localGraph.entries()){
                         var newPathFound :Boolean = false;
+                        val first_dir = firstStep.getValue().direction;
+                        val first_key = firstStep.getKey();
+                        val first_degree = firstStep.getValue().neighbors.size();
                         if(firstStep.getValue().neighbors.containsKey(target.first)){
+                            val second_dir = firstStep.getValue().neighbors.get(target.first)().direction;
                             newPathFound = true;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 0) DD++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 0) DA++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 1) AA++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 1) AD++;
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 0 & firstStep.getValue().direction== 2) {DD++; AD++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 1 & firstStep.getValue().direction== 2) {DA++; AA++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 0) {DA++; DD++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 1) {AA++; AD++;}
-                            if(firstStep.getValue().neighbors.get(target.first)().direction == 2 & firstStep.getValue().direction== 2) {DD++; AD++; DA++; AA++;}
+                            if(second_dir == 0 & first_dir == 0) DD++;
+                            if(second_dir == 1 & first_dir == 0) DA++;
+                            if(second_dir == 1 & first_dir == 1) AA++;
+                            if(second_dir == 0 & first_dir == 1) AD++;
+                            if(second_dir == 0 & first_dir == 2) {DD++; AD++;}
+                            if(second_dir == 1 & first_dir == 2) {DA++; AA++;}
+                            if(second_dir == 2 & first_dir == 0) {DA++; DD++;}
+                            if(second_dir == 2 & first_dir == 1) {AA++; AD++;}
+                            if(second_dir == 2 & first_dir == 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
                         var undFound :Boolean = false;
                         for(undIDX in undirectedIds.range()){
-                           if(undirectedIds(undIDX) == firstStep.getKey()){
+                           if(undirectedIds(undIDX) == first_key){
                                 undFound = true;
                                 break;
                             }
                         }
                         if(newPathFound & !undFound) {
                             CN_score++;
-                            AA_score = AA_score + (1/(Math.log(firstStep.getValue().neighbors.size())));
-                            RA_score = RA_score + (Double.implicit_operator_as(1)/firstStep.getValue().neighbors.size());
-                            undirectedIds.add(firstStep.getKey());
+                            AA_score = AA_score + (1/(Math.log(first_degree)));
+                            RA_score = RA_score + (Double.implicit_operator_as(1)/first_degree);
+                            undirectedIds.add(first_key);
                         }
                     }
                     //Calculate INF related scores
