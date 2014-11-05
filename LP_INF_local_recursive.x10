@@ -59,6 +59,14 @@ public class LP_INF_local_recursive extends STest {
             scoreName = s;
             weights = w;
         }
+        //Constructor that takes a HM and returns a GM
+        public def this(s :String, w :HashMap[Double,HitRate]){
+            scoreName = s;
+            weights = new GrowableMemory[Pair[Double,HitRate] ]();
+            for(current in w.entries()){
+                weights.add(new Pair [Double,HitRate] (current.getKey(),current.getValue()));
+            }
+        }
     }
 
     public static struct MessageReduce{
@@ -324,22 +332,22 @@ public class LP_INF_local_recursive extends STest {
 //bufferedPrintln("Adding target:"+currentTarget+ " isTP:"+vertexData.testCandidates.containsKey(currentTarget));
                 }
                 output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
-                var cn_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var ra_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var aa_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var inf_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var inf_log_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var inf_2d_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var inf_log_2d_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
+                var cn_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var ra_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var aa_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_log_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_2d_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_log_2d_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                 var tpsFound :Long = 0;
                 //Insert score 0 on first pos of all scores
-                cn_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                ra_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                aa_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                inf_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                inf_log_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                inf_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                inf_log_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
+                cn_scores.put(0,new HitRate(0,0)); 
+                ra_scores.put(0,new HitRate(0,0));
+                aa_scores.put(0,new HitRate(0,0));
+                inf_scores.put(0,new HitRate(0,0));
+                inf_log_scores.put(0,new HitRate(0,0));
+                inf_2d_scores.put(0,new HitRate(0,0));
+                inf_log_2d_scores.put(0,new HitRate(0,0));
                 //For each target, calculate # of directed (DD/AA/DA/AD) and undirected paths
                 for(targetIDX in LPTargets.range()){
                     val target = LPTargets(targetIDX);
@@ -403,111 +411,89 @@ public class LP_INF_local_recursive extends STest {
                     val INF_score = ded_score + ind_score;
                     val INF_2D_score = (ded_score*2) + ind_score;
                     //Store values
-                    var found :Boolean = false;
-                    for(scoreIDX in cn_scores.range()){
-                        if(cn_scores(scoreIDX).first == CN_score) { 
-                            found = true; 
-                            if(target.second) cn_scores(scoreIDX) = new Pair[Double,HitRate] (CN_score,new HitRate(cn_scores(scoreIDX).second.tp+1,cn_scores(scoreIDX).second.fp));
-                            else cn_scores(scoreIDX) = new Pair[Double,HitRate] (CN_score, new HitRate(cn_scores(scoreIDX).second.tp,cn_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) cn_scores.add(new Pair[Double,HitRate] (CN_score,new HitRate(1,0)));
-                        else cn_scores.add(new Pair[Double,HitRate] (CN_score,new HitRate(0,1)));
+                    if(cn_scores.containsKey(CN_score)){
+                        val current = cn_scores.get(CN_score)();
+                        if(target.second) cn_scores.put(CN_score,new HitRate(current.tp+1,current.fp));
+                        else cn_scores.put(CN_score,new HitRate(current.tp,current.fp+1));
                     }
-                    found = false;
-                    for(scoreIDX in ra_scores.range()){
-                        if(ra_scores(scoreIDX).first == RA_score) { 
-                            found = true; 
-                            if(target.second) ra_scores(scoreIDX) = new Pair[Double,HitRate] (RA_score,new HitRate(ra_scores(scoreIDX).second.tp+1,ra_scores(scoreIDX).second.fp));
-                            else ra_scores(scoreIDX) = new Pair[Double,HitRate] (RA_score,new HitRate(ra_scores(scoreIDX).second.tp,ra_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) ra_scores.add(new Pair[Double,HitRate] (RA_score,new HitRate(1,0)));
-                        else ra_scores.add(new Pair[Double,HitRate] (RA_score,new HitRate(0,1)));
+                    else {
+                        if(target.second) cn_scores.put(CN_score,new HitRate(1,0));
+                        else cn_scores.put(CN_score,new HitRate(0,1));
                     }
-                    found = false;
-                    for(scoreIDX in aa_scores.range()){
-                        if(aa_scores(scoreIDX).first == AA_score) { 
-                            found = true; 
-                            if(target.second) aa_scores(scoreIDX) = new Pair[Double,HitRate] (AA_score,new HitRate(aa_scores(scoreIDX).second.tp+1,aa_scores(scoreIDX).second.fp));
-                            else aa_scores(scoreIDX) = new Pair[Double,HitRate] (AA_score,new HitRate(aa_scores(scoreIDX).second.tp,aa_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) aa_scores.add(new Pair[Double,HitRate] (AA_score,new HitRate(1,0)));
-                        else aa_scores.add(new Pair[Double,HitRate] (AA_score,new HitRate(0,1)));
+                    if(ra_scores.containsKey(RA_score)){
+                        val current = ra_scores.get(RA_score)();
+                        if(target.second) ra_scores.put(RA_score,new HitRate(current.tp+1,current.fp));
+                        else ra_scores.put(RA_score,new HitRate(current.tp,current.fp+1));
                     }
-                    found = false;
-                    for(scoreIDX in inf_scores.range()){
-                        if(inf_scores(scoreIDX).first == INF_score) { 
-                            found = true; 
-                            if(target.second) inf_scores(scoreIDX) = new Pair[Double,HitRate] (INF_score, new HitRate(inf_scores(scoreIDX).second.tp+1,inf_scores(scoreIDX).second.fp));
-                            else inf_scores(scoreIDX) = new Pair[Double,HitRate] (INF_score, new HitRate(inf_scores(scoreIDX).second.tp,inf_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) inf_scores.add(new Pair[Double,HitRate] (INF_score,new HitRate(1,0)));
-                        else inf_scores.add(new Pair[Double,HitRate] (INF_score,new HitRate(0,1)));
+                    else {
+                        if(target.second) ra_scores.put(RA_score,new HitRate(1,0));
+                        else ra_scores.put(RA_score,new HitRate(0,1));
                     }
-                    found = false;
-                    for(scoreIDX in inf_log_scores.range()){
-                        if(inf_log_scores(scoreIDX).first == INF_LOG_score) { 
-                            found = true; 
-                            if(target.second) inf_log_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_score, new HitRate(inf_log_scores(scoreIDX).second.tp+1,inf_log_scores(scoreIDX).second.fp));
-                            else inf_log_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_score, new HitRate(inf_log_scores(scoreIDX).second.tp,inf_log_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) inf_log_scores.add(new Pair[Double,HitRate] (INF_LOG_score,new HitRate(1,0)));
-                        else inf_log_scores.add(new Pair[Double,HitRate] (INF_LOG_score,new HitRate(0,1)));
+                    if(aa_scores.containsKey(AA_score)){
+                        val current = aa_scores.get(AA_score)();
+                        if(target.second) aa_scores.put(AA_score,new HitRate(current.tp+1,current.fp));
+                        else aa_scores.put(AA_score,new HitRate(current.tp,current.fp+1));
                     }
-                    found = false;
-                    for(scoreIDX in inf_2d_scores.range()){
-                        if(inf_2d_scores(scoreIDX).first == INF_2D_score) { 
-                            found = true; 
-                            if(target.second) inf_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_2D_score, new HitRate(inf_2d_scores(scoreIDX).second.tp+1,inf_2d_scores(scoreIDX).second.fp));
-                            else inf_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_2D_score,new HitRate(inf_2d_scores(scoreIDX).second.tp,inf_2d_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) inf_2d_scores.add(new Pair[Double,HitRate] (INF_2D_score,new HitRate(1,0)));
-                        else inf_2d_scores.add(new Pair[Double,HitRate] (INF_2D_score,new HitRate(0,1)));
+                    else {
+                        if(target.second) aa_scores.put(AA_score,new HitRate(1,0));
+                        else aa_scores.put(AA_score,new HitRate(0,1));
                     }
-                    found = false;
-                    for(scoreIDX in inf_log_2d_scores.range()){
-                        if(inf_log_2d_scores(scoreIDX).first == INF_LOG_2D_score) { 
-                            found = true; 
-                            if(target.second) inf_log_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_2D_score, new HitRate(inf_log_2d_scores(scoreIDX).second.tp+1,inf_log_2d_scores(scoreIDX).second.fp));
-                            else inf_log_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_2D_score, new HitRate(inf_log_2d_scores(scoreIDX).second.tp,inf_log_2d_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(1,0)));
-                        else inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(0,1)));
+                    if(inf_scores.containsKey(INF_score)){
+                        val current = inf_scores.get(INF_score)();
+                        if(target.second) inf_scores.put(INF_score,new HitRate(current.tp+1,current.fp));
+                        else inf_scores.put(INF_score,new HitRate(current.tp,current.fp+1));
                     }
-                    
+                    else {
+                        if(target.second) inf_scores.put(INF_score,new HitRate(1,0));
+                        else inf_scores.put(INF_score,new HitRate(0,1));
+                     }
+                     if(inf_log_scores.containsKey(INF_LOG_score)){
+                        val current = inf_log_scores.get(INF_LOG_score)();
+                        if(target.second) inf_log_scores.put(INF_LOG_score,new HitRate(current.tp+1,current.fp));
+                        else inf_log_scores.put(INF_LOG_score,new HitRate(current.tp,current.fp+1));
+                    }
+                    else {
+                        if(target.second) inf_log_scores.put(INF_LOG_score,new HitRate(1,0));
+                        else inf_log_scores.put(INF_LOG_score,new HitRate(0,1));
+                    }
+                    if(inf_2d_scores.containsKey(INF_2D_score)){
+                        val current = inf_2d_scores.get(INF_2D_score)();
+                        if(target.second) inf_2d_scores.put(INF_2D_score,new HitRate(current.tp+1,current.fp));
+                        else inf_2d_scores.put(INF_2D_score,new HitRate(current.tp,current.fp+1));
+                    }
+                    else {
+                        if(target.second) inf_2d_scores.put(INF_2D_score,new HitRate(1,0));
+                        else inf_2d_scores.put(INF_2D_score,new HitRate(0,1));
+                    }
+                    if(inf_log_2d_scores.containsKey(INF_LOG_2D_score)){
+                        val current = inf_log_2d_scores.get(INF_LOG_2D_score)();
+                        if(target.second) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(current.tp+1,current.fp));
+                        else inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(current.tp,current.fp+1));
+                    }
+                    else {
+                        if(target.second) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(1,0));
+                        else inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(0,1));
+                    }
 //bufferedPrintln("== "+ctx.id()+" has for weight "+INF_score+" TP:"+inf_scores.get(INF_score)().tp+" FP:"+inf_scores.get(INF_score)().fp);
                 } 
                 //Store 0 values, add unrelated TPs and FPs to the ones already found
                 val unrelatedTPsAtZero = vertexData.testCandidates.size()-tpsFound;
                 val unrelatedFPsAtZero = actualVertices - 1 - vertexData.Ancestors - unrelatedTPsAtZero - LPTargets.size();
 //bufferedPrintln("=== "+actualVertices+" "+unrelatedTPsAtZero+" "+LPTargets.size());
-                cn_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + cn_scores(0).second.tp, unrelatedFPsAtZero + cn_scores(0).second.fp));
-                ra_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + ra_scores(0).second.tp, unrelatedFPsAtZero + ra_scores(0).second.fp));
-                aa_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + aa_scores(0).second.tp, unrelatedFPsAtZero + aa_scores(0).second.fp));
-                inf_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_scores(0).second.tp, unrelatedFPsAtZero + inf_scores(0).second.fp));
-                inf_log_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_log_scores(0).second.tp, unrelatedFPsAtZero + inf_log_scores(0).second.fp));
-                inf_2d_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_2d_scores(0).second.tp, unrelatedFPsAtZero + inf_2d_scores(0).second.fp));
-                inf_log_2d_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_log_2d_scores(0).second.tp, unrelatedFPsAtZero + inf_log_2d_scores(0).second.fp));
+                val cn_zero = cn_scores.get(0)();
+                cn_scores.put(0,new HitRate(unrelatedTPsAtZero + cn_zero.tp, unrelatedFPsAtZero + cn_zero.fp));
+                val ra_zero = ra_scores.get(0)();
+                ra_scores.put(0,new HitRate(unrelatedTPsAtZero + ra_zero.tp, unrelatedFPsAtZero + ra_zero.fp));
+                val aa_zero = aa_scores.get(0)();
+                aa_scores.put(0,new HitRate(unrelatedTPsAtZero + aa_zero.tp, unrelatedFPsAtZero + aa_zero.fp));
+                val inf_zero = inf_scores.get(0)();
+                inf_scores.put(0,new HitRate(unrelatedTPsAtZero + inf_zero.tp, unrelatedFPsAtZero + inf_zero.fp));
+                val inf_log_zero = inf_log_scores.get(0)();
+                inf_log_scores.put(0,new HitRate(unrelatedTPsAtZero + inf_log_zero.tp, unrelatedFPsAtZero + inf_log_zero.fp));
+                val inf_2d_zero = inf_2d_scores.get(0)();
+                inf_2d_scores.put(0,new HitRate(unrelatedTPsAtZero + inf_2d_zero.tp, unrelatedFPsAtZero + inf_2d_zero.fp));
+                val inf_log_2d_zero = inf_log_2d_scores.get(0)();
+                inf_log_2d_scores.put(0,new HitRate(unrelatedTPsAtZero + inf_log_2d_zero.tp, unrelatedFPsAtZero + inf_log_2d_zero.fp));
 //bufferedPrintln("== "+ctx.id()+" has for weight 0 TP:"+cn_scores.get(0)().tp+" FP:"+cn_scores.get(0)().fp);
                 //Store for aggregate
                 output.add(new ScorePair("CN",cn_scores));
@@ -585,22 +571,22 @@ public class LP_INF_local_recursive extends STest {
                     //LPTargets.put(currentTarget, vertexData.testCandidates.containsKey(currentTarget));
                 }
                 output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
-                var cn_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var ra_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var aa_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var inf_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var inf_log_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var inf_2d_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var inf_log_2d_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
+                var cn_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var ra_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var aa_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_log_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_2d_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
+                var inf_log_2d_scores :HashMap[Double,HitRate] = new HashMap[Double,HitRate]();
                 var tpsFound :Long = 0;
                 //Insert score 0 on first pos of all scores
-                cn_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                ra_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                aa_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                inf_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                inf_log_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                inf_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                inf_log_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
+                cn_scores.put(0,new HitRate(0,0));
+                ra_scores.put(0,new HitRate(0,0));
+                aa_scores.put(0,new HitRate(0,0));
+                inf_scores.put(0,new HitRate(0,0));
+                inf_log_scores.put(0,new HitRate(0,0));
+                inf_2d_scores.put(0,new HitRate(0,0));
+                inf_log_2d_scores.put(0,new HitRate(0,0));
                 //For each target, calculate # of directed (DD/AA/DA/AD) and undirected paths
                 for(targetIDX in LPTargets.range()){
                     val target = LPTargets(targetIDX);
@@ -664,111 +650,89 @@ public class LP_INF_local_recursive extends STest {
                     val INF_score = ded_score + ind_score;
                     val INF_2D_score = (ded_score*2) + ind_score;
                     //Store values
-                    var found :Boolean = false;
-                    for(scoreIDX in cn_scores.range()){
-                        if(cn_scores(scoreIDX).first == CN_score) { 
-                            found = true; 
-                            if(target.second) cn_scores(scoreIDX) = new Pair[Double,HitRate] (CN_score,new HitRate(cn_scores(scoreIDX).second.tp+1,cn_scores(scoreIDX).second.fp));
-                            else cn_scores(scoreIDX) = new Pair[Double,HitRate] (CN_score, new HitRate(cn_scores(scoreIDX).second.tp,cn_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) cn_scores.add(new Pair[Double,HitRate] (CN_score,new HitRate(1,0)));
-                        else cn_scores.add(new Pair[Double,HitRate] (CN_score,new HitRate(0,1)));
+                     if(cn_scores.containsKey(CN_score)){
+                        val current = cn_scores.get(CN_score)();
+                        if(target.second) cn_scores.put(CN_score,new HitRate(current.tp+1,current.fp));
+                        else cn_scores.put(CN_score,new HitRate(current.tp,current.fp+1));
                     }
-                    found = false;
-                    for(scoreIDX in ra_scores.range()){
-                        if(ra_scores(scoreIDX).first == RA_score) { 
-                            found = true; 
-                            if(target.second) ra_scores(scoreIDX) = new Pair[Double,HitRate] (RA_score,new HitRate(ra_scores(scoreIDX).second.tp+1,ra_scores(scoreIDX).second.fp));
-                            else ra_scores(scoreIDX) = new Pair[Double,HitRate] (RA_score,new HitRate(ra_scores(scoreIDX).second.tp,ra_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) ra_scores.add(new Pair[Double,HitRate] (RA_score,new HitRate(1,0)));
-                        else ra_scores.add(new Pair[Double,HitRate] (RA_score,new HitRate(0,1)));
+                    else {
+                        if(target.second) cn_scores.put(CN_score,new HitRate(1,0));
+                        else cn_scores.put(CN_score,new HitRate(0,1));
                     }
-                    found = false;
-                    for(scoreIDX in aa_scores.range()){
-                        if(aa_scores(scoreIDX).first == AA_score) { 
-                            found = true; 
-                            if(target.second) aa_scores(scoreIDX) = new Pair[Double,HitRate] (AA_score,new HitRate(aa_scores(scoreIDX).second.tp+1,aa_scores(scoreIDX).second.fp));
-                            else aa_scores(scoreIDX) = new Pair[Double,HitRate] (AA_score,new HitRate(aa_scores(scoreIDX).second.tp,aa_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) aa_scores.add(new Pair[Double,HitRate] (AA_score,new HitRate(1,0)));
-                        else aa_scores.add(new Pair[Double,HitRate] (AA_score,new HitRate(0,1)));
+                    if(ra_scores.containsKey(RA_score)){
+                        val current = ra_scores.get(RA_score)();
+                        if(target.second) ra_scores.put(RA_score,new HitRate(current.tp+1,current.fp));
+                        else ra_scores.put(RA_score,new HitRate(current.tp,current.fp+1));
                     }
-                    found = false;
-                    for(scoreIDX in inf_scores.range()){
-                        if(inf_scores(scoreIDX).first == INF_score) { 
-                            found = true; 
-                            if(target.second) inf_scores(scoreIDX) = new Pair[Double,HitRate] (INF_score, new HitRate(inf_scores(scoreIDX).second.tp+1,inf_scores(scoreIDX).second.fp));
-                            else inf_scores(scoreIDX) = new Pair[Double,HitRate] (INF_score, new HitRate(inf_scores(scoreIDX).second.tp,inf_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) inf_scores.add(new Pair[Double,HitRate] (INF_score,new HitRate(1,0)));
-                        else inf_scores.add(new Pair[Double,HitRate] (INF_score,new HitRate(0,1)));
+                    else {
+                        if(target.second) ra_scores.put(RA_score,new HitRate(1,0));
+                        else ra_scores.put(RA_score,new HitRate(0,1));
                     }
-                    found = false;
-                    for(scoreIDX in inf_log_scores.range()){
-                        if(inf_log_scores(scoreIDX).first == INF_LOG_score) { 
-                            found = true; 
-                            if(target.second) inf_log_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_score, new HitRate(inf_log_scores(scoreIDX).second.tp+1,inf_log_scores(scoreIDX).second.fp));
-                            else inf_log_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_score, new HitRate(inf_log_scores(scoreIDX).second.tp,inf_log_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) inf_log_scores.add(new Pair[Double,HitRate] (INF_LOG_score,new HitRate(1,0)));
-                        else inf_log_scores.add(new Pair[Double,HitRate] (INF_LOG_score,new HitRate(0,1)));
+                    if(aa_scores.containsKey(AA_score)){
+                        val current = aa_scores.get(AA_score)();
+                        if(target.second) aa_scores.put(AA_score,new HitRate(current.tp+1,current.fp));
+                        else aa_scores.put(AA_score,new HitRate(current.tp,current.fp+1));
                     }
-                    found = false;
-                    for(scoreIDX in inf_2d_scores.range()){
-                        if(inf_2d_scores(scoreIDX).first == INF_2D_score) { 
-                            found = true; 
-                            if(target.second) inf_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_2D_score, new HitRate(inf_2d_scores(scoreIDX).second.tp+1,inf_2d_scores(scoreIDX).second.fp));
-                            else inf_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_2D_score,new HitRate(inf_2d_scores(scoreIDX).second.tp,inf_2d_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) inf_2d_scores.add(new Pair[Double,HitRate] (INF_2D_score,new HitRate(1,0)));
-                        else inf_2d_scores.add(new Pair[Double,HitRate] (INF_2D_score,new HitRate(0,1)));
+                    else {
+                        if(target.second) aa_scores.put(AA_score,new HitRate(1,0));
+                        else aa_scores.put(AA_score,new HitRate(0,1));
                     }
-                    found = false;
-                    for(scoreIDX in inf_log_2d_scores.range()){
-                        if(inf_log_2d_scores(scoreIDX).first == INF_LOG_2D_score) { 
-                            found = true; 
-                            if(target.second) inf_log_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_2D_score, new HitRate(inf_log_2d_scores(scoreIDX).second.tp+1,inf_log_2d_scores(scoreIDX).second.fp));
-                            else inf_log_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_2D_score, new HitRate(inf_log_2d_scores(scoreIDX).second.tp,inf_log_2d_scores(scoreIDX).second.fp+1));
-                            break;
-                        }
-                    } 
-                    if(!found) {
-                        if(target.second) inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(1,0)));
-                        else inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(0,1)));
+                    if(inf_scores.containsKey(INF_score)){
+                        val current = inf_scores.get(INF_score)();
+                        if(target.second) inf_scores.put(INF_score,new HitRate(current.tp+1,current.fp));
+                        else inf_scores.put(INF_score,new HitRate(current.tp,current.fp+1));
                     }
-                    
+                    else {
+                        if(target.second) inf_scores.put(INF_score,new HitRate(1,0));
+                        else inf_scores.put(INF_score,new HitRate(0,1));
+                     }
+                     if(inf_log_scores.containsKey(INF_LOG_score)){
+                        val current = inf_log_scores.get(INF_LOG_score)();
+                        if(target.second) inf_log_scores.put(INF_LOG_score,new HitRate(current.tp+1,current.fp));
+                        else inf_log_scores.put(INF_LOG_score,new HitRate(current.tp,current.fp+1));
+                    }
+                    else {
+                        if(target.second) inf_log_scores.put(INF_LOG_score,new HitRate(1,0));
+                        else inf_log_scores.put(INF_LOG_score,new HitRate(0,1));
+                    }
+                    if(inf_2d_scores.containsKey(INF_2D_score)){
+                        val current = inf_2d_scores.get(INF_2D_score)();
+                        if(target.second) inf_2d_scores.put(INF_2D_score,new HitRate(current.tp+1,current.fp));
+                        else inf_2d_scores.put(INF_2D_score,new HitRate(current.tp,current.fp+1));
+                    }
+                    else {
+                        if(target.second) inf_2d_scores.put(INF_2D_score,new HitRate(1,0));
+                        else inf_2d_scores.put(INF_2D_score,new HitRate(0,1));
+                    }
+                    if(inf_log_2d_scores.containsKey(INF_LOG_2D_score)){
+                        val current = inf_log_2d_scores.get(INF_LOG_2D_score)();
+                        if(target.second) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(current.tp+1,current.fp));
+                        else inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(current.tp,current.fp+1));
+                    }
+                    else {
+                        if(target.second) inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(1,0));
+                        else inf_log_2d_scores.put(INF_LOG_2D_score,new HitRate(0,1));
+                    }
 //bufferedPrintln("== "+ctx.id()+" has for weight "+INF_score+" TP:"+inf_scores.get(INF_score)().tp+" FP:"+inf_scores.get(INF_score)().fp);
-                } 
+                }
                 //Store 0 values, add unrelated TPs and FPs to the ones already found
                 val unrelatedTPsAtZero = vertexData.testCandidates.size()-tpsFound;
                 val unrelatedFPsAtZero = actualVertices - 1 - vertexData.Ancestors - unrelatedTPsAtZero - LPTargets.size();
 //bufferedPrintln("=== "+actualVertices+" "+unrelatedTPsAtZero+" "+LPTargets.size());
-                cn_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + cn_scores(0).second.tp, unrelatedFPsAtZero + cn_scores(0).second.fp));
-                ra_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + ra_scores(0).second.tp, unrelatedFPsAtZero + ra_scores(0).second.fp));
-                aa_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + aa_scores(0).second.tp, unrelatedFPsAtZero + aa_scores(0).second.fp));
-                inf_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_scores(0).second.tp, unrelatedFPsAtZero + inf_scores(0).second.fp));
-                inf_log_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_log_scores(0).second.tp, unrelatedFPsAtZero + inf_log_scores(0).second.fp));
-                inf_2d_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_2d_scores(0).second.tp, unrelatedFPsAtZero + inf_2d_scores(0).second.fp));
-                inf_log_2d_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_log_2d_scores(0).second.tp, unrelatedFPsAtZero + inf_log_2d_scores(0).second.fp));
+                val cn_zero = cn_scores.get(0)();
+                cn_scores.put(0,new HitRate(unrelatedTPsAtZero + cn_zero.tp, unrelatedFPsAtZero + cn_zero.fp));
+                val ra_zero = ra_scores.get(0)();
+                ra_scores.put(0,new HitRate(unrelatedTPsAtZero + ra_zero.tp, unrelatedFPsAtZero + ra_zero.fp));
+                val aa_zero = aa_scores.get(0)();
+                aa_scores.put(0,new HitRate(unrelatedTPsAtZero + aa_zero.tp, unrelatedFPsAtZero + aa_zero.fp));
+                val inf_zero = inf_scores.get(0)();
+                inf_scores.put(0,new HitRate(unrelatedTPsAtZero + inf_zero.tp, unrelatedFPsAtZero + inf_zero.fp));
+                val inf_log_zero = inf_log_scores.get(0)();
+                inf_log_scores.put(0,new HitRate(unrelatedTPsAtZero + inf_log_zero.tp, unrelatedFPsAtZero + inf_log_zero.fp));
+                val inf_2d_zero = inf_2d_scores.get(0)();
+                inf_2d_scores.put(0,new HitRate(unrelatedTPsAtZero + inf_2d_zero.tp, unrelatedFPsAtZero + inf_2d_zero.fp));
+                val inf_log_2d_zero = inf_log_2d_scores.get(0)();
+                inf_log_2d_scores.put(0,new HitRate(unrelatedTPsAtZero + inf_log_2d_zero.tp, unrelatedFPsAtZero + inf_log_2d_zero.fp));
 //bufferedPrintln("== "+ctx.id()+" has for weight 0 TP:"+cn_scores.get(0)().tp+" FP:"+cn_scores.get(0)().fp);
                 //Store for aggregate
                 output.add(new ScorePair("CN",cn_scores));
