@@ -367,14 +367,15 @@ public class LP_INF_local_recursive extends STest {
                              if(second_dir == 2 & first_dir == 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
-                        var undFound :Boolean = false;
-                        for(undIDX in undirectedIds.range()){
-                           if(undirectedIds(undIDX) == first_key){
-                                undFound = true;
-                                break;
-                            }
-                        }
-                        if(newPathFound & !undFound) {
+                        //var undFound :Boolean = false;
+                        //for(undIDX in undirectedIds.range()){
+                        //   if(undirectedIds(undIDX) == first_key){
+                        //        undFound = true;
+                        //        break;
+                        //    }
+                        //}
+                        //if(newPathFound & !undFound) {
+                        if(newPathFound) {
                             CN_score++;
                             AA_score = AA_score + (1/(Math.log(first_degree)));
                             RA_score = RA_score + (Double.implicit_operator_as(1)/first_degree);
@@ -628,14 +629,15 @@ public class LP_INF_local_recursive extends STest {
                             if(second_dir == 2 & first_dir == 2) {DD++; AD++; DA++; AA++;}
                         }
                         //New directed path found, check if an undirected path was already added
-                        var undFound :Boolean = false;
-                        for(undIDX in undirectedIds.range()){
-                           if(undirectedIds(undIDX) == first_key){
-                                undFound = true;
-                                break;
-                            }
-                        }
-                        if(newPathFound & !undFound) {
+                        //var undFound :Boolean = false;
+                        //for(undIDX in undirectedIds.range()){
+                        //   if(undirectedIds(undIDX) == first_key){
+                        //        undFound = true;
+                        //        break;
+                        //    }
+                        //}
+                        //if(newPathFound & !undFound) {
+                        if(newPathFound) {
                             CN_score++;
                             AA_score = AA_score + (1/(Math.log(first_degree)));
                             RA_score = RA_score + (Double.implicit_operator_as(1)/first_degree);
