@@ -113,7 +113,6 @@ public class LP_INF_local_recursive extends STest {
         val localGraph :HashMap[Long,NeighborData];
         val localGraphOriginal :HashMap[Long,NeighborData];
         val testCandidates: GrowableMemory[Long];
-        val evalCandidates: HashMap[Long,Boolean];
         val Descendants: Long;
         val Ancestors: Long;
         val last_data: GrowableMemory[ScorePair];
@@ -124,7 +123,6 @@ public class LP_INF_local_recursive extends STest {
             Descendants = d;
             Ancestors = a;
             last_data = new GrowableMemory[ScorePair]();
-            evalCandidates = new HashMap[Long,Boolean]();
         }
         //Constructor before return
         public def this(last: GrowableMemory[ScorePair], orig :HashMap[Long,NeighborData]){
@@ -134,7 +132,6 @@ public class LP_INF_local_recursive extends STest {
             Descendants = 0;
             Ancestors = 0;
             last_data = last;
-            evalCandidates = new HashMap[Long,Boolean]();
         }
         //Constructor used for empty return of disconnected vertices
         public def this(){
@@ -144,7 +141,6 @@ public class LP_INF_local_recursive extends STest {
             Ancestors = 0;
             last_data = new GrowableMemory[ScorePair]();
             testCandidates = new GrowableMemory[Long]();
-            evalCandidates = new HashMap[Long,Boolean]();
         }
     }
 
@@ -309,6 +305,7 @@ public class LP_INF_local_recursive extends STest {
                              currentEntry.setValue(new NeighborData(currentEntry.getValue()));
                         }
                     }
+                    var evalCandidates: HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                     //For each message recieved
                     for(mess in messages){
                         val messageId:Long = mess.id_sender;
@@ -320,8 +317,8 @@ public class LP_INF_local_recursive extends STest {
                                 vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
                                 //Unless already added or is self, add as target according to localGraph
                                 var found :Boolean = false;
-                                if(!vertexData.evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
-                                    vertexData.evalCandidates.put(newStep.getKey(), true);
+                                if(!evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
+                                    evalCandidates.put(newStep.getKey(), true);
                                 }
                             }
                         }
@@ -329,7 +326,7 @@ public class LP_INF_local_recursive extends STest {
 //printLocalGraph(vertexData.localGraph, 0);
                     //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
                     var LPTargetsEvidence :GrowableMemory[Pair[Long,Evidence] ] = new GrowableMemory[Pair[Long,Evidence] ] ();
-                    for(currentTarget in vertexData.evalCandidates.keySet()){
+                    for(currentTarget in evalCandidates.keySet()){
                         //If outedge exists it is not target
                         if(vertexData.localGraph.containsKey(currentTarget)){
                             if(vertexData.localGraph.get(currentTarget)().direction > 0) continue;
@@ -552,6 +549,7 @@ public class LP_INF_local_recursive extends STest {
                          currentEntry.setValue(new NeighborData(currentEntry.getValue()));
                     }
                 }
+                var evalCandidates: HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                 //For each message recieved
                 for(mess in messages){
                     val messageId:Long = mess.id_sender;
@@ -563,8 +561,8 @@ public class LP_INF_local_recursive extends STest {
                             vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
                             //Unless already added or is self, add as target according to localGraph
                             var found :Boolean = false;
-                            if(!vertexData.evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
-                                vertexData.evalCandidates.put(newStep.getKey(), true);
+                            if(!evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
+                                evalCandidates.put(newStep.getKey(), true);
                             }
                         }
                     }
@@ -572,7 +570,7 @@ public class LP_INF_local_recursive extends STest {
 //printLocalGraph(vertexData.localGraph, 0);
                 //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
                 var LPTargetsEvidence :GrowableMemory[Pair[Long,Evidence] ] = new GrowableMemory[Pair[Long,Evidence] ] ();
-                for(currentTarget in vertexData.evalCandidates.keySet()){
+                for(currentTarget in evalCandidates.keySet()){
                     //If outedge exists it is not target
                     if(vertexData.localGraph.containsKey(currentTarget)){
                         if(vertexData.localGraph.get(currentTarget)().direction > 0) continue;
