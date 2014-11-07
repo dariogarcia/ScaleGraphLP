@@ -245,7 +245,7 @@ public class LP_INF_local_recursive extends STest {
                 }
             }
 
-            //2nd to before last superstep: read the messages, extend the localGraph with the information arriving
+            //[2:before-last] superstep: read the messages, extend the localGraph with the information arriving
             if(ctx.superstep() > 0 & ctx.superstep() < splitMessage){
                 val m :Message = Message(ctx.id(),ctx.value().localGraphOriginal);
                 val tupleOut = ctx.outEdges();
@@ -266,7 +266,6 @@ public class LP_INF_local_recursive extends STest {
                 if(ctx.id() % splitMessage!=Long.implicit_operator_as(ctx.superstep())-1) {
                     return;
                     //Not right to halt! nodes with no incoming vertices will not be evaluated, and vertices with info still to be sent wont send it
-                    //ctx.voteToHalt();
                 }
 
                 else {
@@ -283,17 +282,10 @@ public class LP_INF_local_recursive extends STest {
                         val messageId:Long = mess.id_sender;
                         //If the sender is myself, skip it cause I already have that information
                         if(messageId == ctx.id()) continue;
-                    
-                        //NULL_CODE: Initialize all HashMaps
-                        for(currentEntry in mess.messageGraph.entries()){
-                            if(currentEntry.getValue().neighbors == null) currentEntry.setValue(new NeighborData(currentEntry.getValue()));
-                        }
-                        
                         //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
                         if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
                             for(newStep in mess.messageGraph.entries()){
                                 vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
-                                //vertexData.localGraph(messageId)().neighbors.add(new Pair[Long,NeighborData](newStep.getKey(),newStep.getValue()));
                                 //Unless already added or is self, add as target according to localGraph
                                 var found :Boolean = false;
                                 if(!vertexData.evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
@@ -508,13 +500,11 @@ public class LP_INF_local_recursive extends STest {
             }
             //Last superstep: read the messages, extend the localGraph with the information arriving
             if(ctx.superstep() == splitMessage){
-
                 //If its messages were not sent the previous superstep
                 if(ctx.id() % splitMessage!=Long.implicit_operator_as(ctx.superstep())-1) {
 //bufferedPrintln("-Vertex :"+ctx.id()+" votes to halt in superstep:"+ctx.superstep());
                     return;
                     //Not right to halt! nodes with no incoming vertices will not be evaluated
-                    //ctx.voteToHalt();
                 }
 //bufferedPrintln("-Vertex :"+ctx.id()+" enters superstep:"+ctx.superstep());
                 //Load all one step neighbors
@@ -530,16 +520,9 @@ public class LP_INF_local_recursive extends STest {
                     val messageId:Long = mess.id_sender;
                     //If the sender is myself, skip it cause I already have that information
                     if(messageId == ctx.id()) continue;
-                
-                    //NULL_CODE: Initialize all HashMaps
-                    for(currentEntry in mess.messageGraph.entries()){
-                        if(currentEntry.getValue().neighbors == null) currentEntry.setValue(new NeighborData(currentEntry.getValue()));
-                    }
-                    
                     //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
                     if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
                         for(newStep in mess.messageGraph.entries()){
-                            //vertexData.localGraph(messageId)().neighbors.add(new Pair[Long,NeighborData](newStep.getKey(),newStep.getValue()));
                             vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
                             //Unless already added or is self, add as target according to localGraph
                             var found :Boolean = false;
