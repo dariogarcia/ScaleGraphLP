@@ -374,17 +374,17 @@ public class LP_INF_local_recursive extends STest {
                             val evidence = LPTargetsEvidence(evidenceIDX);
                             if(firstStep.getValue().neighbors.containsKey(evidence.first)){
                                  val second_dir = firstStep.getValue().neighbors.get(evidence.first)().direction;
-                                 var dd :Double=0 , da :Double=0, ad:Double=0, aa:Double=0, cn:double=0, aa_s:double=0, ra:double=0;
-                                 if(second_dir == 0 & first_dir == 0) dd = evidence.second.DD+1;
-                                 else if(second_dir == 1 & first_dir == 0) da = evidence.second.DA+1;
-                                 else if(second_dir == 1 & first_dir == 1) aa = evidence.second.AA+1;
-                                 else if(second_dir == 0 & first_dir == 1) ad = evidence.second.AD+1;
-                                 else if(second_dir == 0 & first_dir == 2) {dd = evidence.second.DD+1; ad = evidence.second.AD+1;}
-                                 else if(second_dir == 1 & first_dir == 2) {da = evidence.second.DA+1; aa = evidence.second.AA+1;}
-                                 else if(second_dir == 2 & first_dir == 0) {da = evidence.second.DA+1; dd = evidence.second.DD+1;}
-                                 else if(second_dir == 2 & first_dir == 1) {aa = evidence.second.AA+1; ad = evidence.second.AD+1;}
-                                 else if(second_dir == 2 & first_dir == 2) {dd = evidence.second.DD+1; ad = evidence.second.AD+1; 
-                                                                            da = evidence.second.DA+1; aa = evidence.second.AA+1;}
+                                 var dd :Double=evidence.second.DD , da :Double=evidence.second.DA, ad:Double=evidence.second.AD, aa:Double=evidence.second.AA, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
+                                 if(second_dir == 0 & first_dir == 0) dd = dd+1;
+                                 else if(second_dir == 1 & first_dir == 0) da = da+1;
+                                 else if(second_dir == 1 & first_dir == 1) aa = aa+1;
+                                 else if(second_dir == 0 & first_dir == 1) ad = ad+1;
+                                 else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
+                                 else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
+                                 else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
+                                 else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
+                                 else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; 
+                                                                            da = da+1; aa = aa+1;}
                                  cn = evidence.second.CN_score+1;
                                  aa_s = evidence.second.AA_score + (1/(Math.log(first_degree)));
                                  ra = evidence.second.RA_score + (Double.implicit_operator_as(1)/first_degree);
@@ -617,17 +617,17 @@ public class LP_INF_local_recursive extends STest {
                         val evidence = LPTargetsEvidence(evidenceIDX);
                         if(firstStep.getValue().neighbors.containsKey(evidence.first)){
                              val second_dir = firstStep.getValue().neighbors.get(evidence.first)().direction;
-                             var dd :Double=0 , da :Double=0, ad:Double=0, aa:Double=0, cn:double=0, aa_s:double=0, ra:double=0;
-                             if(second_dir == 0 & first_dir == 0) dd = evidence.second.DD+1;
-                             else if(second_dir == 1 & first_dir == 0) da = evidence.second.DA+1;
-                             else if(second_dir == 1 & first_dir == 1) aa = evidence.second.AA+1;
-                             else if(second_dir == 0 & first_dir == 1) ad = evidence.second.AD+1;
-                             else if(second_dir == 0 & first_dir == 2) {dd = evidence.second.DD+1; ad = evidence.second.AD+1;}
-                             else if(second_dir == 1 & first_dir == 2) {da = evidence.second.DA+1; aa = evidence.second.AA+1;}
-                             else if(second_dir == 2 & first_dir == 0) {da = evidence.second.DA+1; dd = evidence.second.DD+1;}
-                             else if(second_dir == 2 & first_dir == 1) {aa = evidence.second.AA+1; ad = evidence.second.AD+1;}
-                             else if(second_dir == 2 & first_dir == 2) {dd = evidence.second.DD+1; ad = evidence.second.AD+1; 
-                                                                        da = evidence.second.DA+1; aa = evidence.second.AA+1;}
+                             var dd :Double=evidence.second.DD , da :Double=evidence.second.DA, ad:Double=evidence.second.AD, aa:Double=evidence.second.AA, cn:Double = 0, aa_s:Double = 0, ra:Double = 0;
+                             if(second_dir == 0 & first_dir == 0) dd = dd+1;
+                             else if(second_dir == 1 & first_dir == 0) da = da+1;
+                             else if(second_dir == 1 & first_dir == 1) aa = aa+1;
+                             else if(second_dir == 0 & first_dir == 1) ad = ad+1;
+                             else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
+                             else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
+                             else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
+                             else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
+                             else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; 
+                                                                            da = da+1; aa = aa+1;}
                              cn = evidence.second.CN_score+1;
                              aa_s = evidence.second.AA_score + (1/(Math.log(first_degree)));
                              ra = evidence.second.RA_score + (Double.implicit_operator_as(1)/first_degree);
