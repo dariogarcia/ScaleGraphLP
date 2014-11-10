@@ -305,43 +305,7 @@ public class LP_INF_local_recursive extends STest {
                              currentEntry.setValue(new NeighborData(currentEntry.getValue()));
                         }
                     }
-                    var evalCandidates: HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
-                    //For each message recieved
-                    for(mess in messages){
-                        val messageId:Long = mess.id_sender;
-                        //If the sender is myself, skip it cause I already have that information
-                        if(messageId == ctx.id()) continue;
-                        //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
-                        if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
-                            for(newStep in mess.messageGraph.entries()){
-                                vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
-                                //Unless already added or is self, add as target according to localGraph
-                                var found :Boolean = false;
-                                if(!evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
-                                    evalCandidates.put(newStep.getKey(), true);
-                                }
-                            }
-                        }
-                    }
-//printLocalGraph(vertexData.localGraph, 0);
-                    //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
-                    var LPTargetsEvidence :GrowableMemory[Pair[Long,Evidence] ] = new GrowableMemory[Pair[Long,Evidence] ] ();
-                    for(currentTarget in evalCandidates.keySet()){
-                        //If outedge exists it is not target
-                        if(vertexData.localGraph.containsKey(currentTarget)){
-                            if(vertexData.localGraph.get(currentTarget)().direction > 0) continue;
-                        }
-                        //Otherwise add it to the Growable, together with it being TP
-                        var testFound :Boolean = false;
-                        for(testIDX in vertexData.testCandidates.range()) {
-                            if(vertexData.testCandidates(testIDX)==currentTarget) {
-                                testFound = true;
-                                break;
-                            }
-                        }
-                        LPTargetsEvidence.add(new Pair[Long,Evidence] (currentTarget,new Evidence(testFound)));
-//bufferedPrintln("Adding target:"+currentTarget+ " isTP:"+vertexData.testCandidates.containsKey(currentTarget));
-                    }
+                    var LPTargetsEvidence :HashMap[Long,Evidence] = new HashMap[Long,Evidence] ();
                     output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
                     var cn_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
                     var ra_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
@@ -359,55 +323,91 @@ public class LP_INF_local_recursive extends STest {
                     inf_log_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
                     inf_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
                     inf_log_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
+                    //For each message recieved
+                    for(mess in messages){
+                        val first_key = mess.id_sender;
+                        //TODO: Moving this check to the sending (ss=0) may slightly reduce imbalance
+                        //If the sender is myself, skip it cause I already have that information
+                        if(first_key == ctx.id()) continue;
+                        val  firstStep = vertexData.localGraph(first_key)();
+                        //If this vertex has not been updated yet, read all paths from its message
+                        if(firstStep.neighbors.size()==0){
+                            val first_dir = firstStep.direction;
+                            val first_degree = firstStep.neighbors.size();
+                            for(secondStep in mess.messageGraph.entries()){
+                                //TODO: Is this necessary?
+                                //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
+                                val second_key = secondStep.getKey();
+                                //If valid target !(self or direct out-neighbor)
+                                if(second_key != ctx.id() & (!vertexData.localGraph.containsKey(second_key) | !(vertexData.localGraph.get(second_key)().direction > 0))) {
+                                    val second_dir = secondStep.getValue().direction;
+                                    //If not yet added, add as target and if TP. Initialize scores
+                                    if(!LPTargetsEvidence.containsKey(second_key)) {
+                                        var testFound :Boolean = false;
+                                        for(testIDX in vertexData.testCandidates.range()) {
+                                            if(vertexData.testCandidates(testIDX)==second_key) {
+                                                testFound = true;
+                                                break;
+                                            }
+                                        }
+                                        var dd :Double=0 , da :Double=0, ad:Double=0, aa:Double=0, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
+                                        if(second_dir == 0 & first_dir == 0) dd = dd+1;
+                                        else if(second_dir == 1 & first_dir == 0) da = da+1;
+                                        else if(second_dir == 1 & first_dir == 1) aa = aa+1;
+                                        else if(second_dir == 0 & first_dir == 1) ad = ad+1;
+                                        else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
+                                        else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
+                                        else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
+                                        else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
+                                        else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; da = da+1; aa = aa+1;}
+                                        cn = 1;
+                                        aa_s = (1/(Math.log(first_degree)));
+                                        ra = (Double.implicit_operator_as(1)/first_degree);
+                                        LPTargetsEvidence.put(second_key,new Evidence(testFound,dd,da,ad,aa,cn,aa_s,ra));
+                                    }
+                                    //Else new path, increase scores
+                                    else{
+                                        val evidence = LPTargetsEvidence(second_key)();
+                                        var dd :Double=evidence.DD , da :Double=evidence.DA, ad:Double=evidence.AD, aa:Double=evidence.AA, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
+                                        if(second_dir == 0 & first_dir == 0) dd = dd+1;
+                                        else if(second_dir == 1 & first_dir == 0) da = da+1;
+                                        else if(second_dir == 1 & first_dir == 1) aa = aa+1;
+                                        else if(second_dir == 0 & first_dir == 1) ad = ad+1;
+                                        else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
+                                        else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
+                                        else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
+                                        else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
+                                        else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; 
+                                                                                 da = da+1; aa = aa+1;}
+                                        cn = evidence.CN_score+1;
+                                        aa_s = evidence.AA_score + (1/(Math.log(first_degree)));
+                                        ra = evidence.RA_score + (Double.implicit_operator_as(1)/first_degree);
+                                        LPTargetsEvidence.put(second_key, new Evidence(evidence.TP,dd,da,ad,aa,cn,aa_s,ra));
+                                    }
+                                }
+                            }
+                        }
+                    }
                         
-
-                    //Seek if the target can be reached through each possible firstStep, and calculate num and type of paths
-                    for(firstStep in vertexData.localGraph.entries()){
-                        val first_dir = firstStep.getValue().direction;
-                        val first_key = firstStep.getKey();
-                        val first_degree = firstStep.getValue().neighbors.size();
-                        //For each target reachable, update # of directed (DD/AA/DA/AD) and undirected paths
-                        for(evidenceIDX in LPTargetsEvidence.range()){
-                            val evidence = LPTargetsEvidence(evidenceIDX);
-                            if(firstStep.getValue().neighbors.containsKey(evidence.first)){
-                                 val second_dir = firstStep.getValue().neighbors.get(evidence.first)().direction;
-                                 var dd :Double=evidence.second.DD , da :Double=evidence.second.DA, ad:Double=evidence.second.AD, aa:Double=evidence.second.AA, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
-                                 if(second_dir == 0 & first_dir == 0) dd = dd+1;
-                                 else if(second_dir == 1 & first_dir == 0) da = da+1;
-                                 else if(second_dir == 1 & first_dir == 1) aa = aa+1;
-                                 else if(second_dir == 0 & first_dir == 1) ad = ad+1;
-                                 else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
-                                 else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
-                                 else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
-                                 else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
-                                 else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; 
-                                                                            da = da+1; aa = aa+1;}
-                                 cn = evidence.second.CN_score+1;
-                                 aa_s = evidence.second.AA_score + (1/(Math.log(first_degree)));
-                                 ra = evidence.second.RA_score + (Double.implicit_operator_as(1)/first_degree);
-                                 LPTargetsEvidence(evidenceIDX) = new Pair[Long,Evidence] (evidence.first, new Evidence(evidence.second.TP,dd,da,ad,aa,cn,aa_s,ra));
-                            }    
-                        }   
-                    } 
                     //Once we have all the evidence, calculate all weights
-                    for(evidenceIDX in LPTargetsEvidence.range()){ 
-                        val evidence = LPTargetsEvidence(evidenceIDX);
-                        if(evidence.second.TP) tpsFound++;
+                    for(evidenceKey in LPTargetsEvidence.keySet()){ 
+                        val evidence = LPTargetsEvidence(evidenceKey)();
+                        if(evidence.TP) tpsFound++;
                         //Calculate INF related scores
                         var ded_score :Double = 0; var ind_score :Double = 0; var INF_LOG_score :Double = 0; var INF_LOG_2D_score :Double = 0;
                         if(vertexData.Ancestors > 0){
-                            ded_score = evidence.second.AA/vertexData.Ancestors;
+                            ded_score = evidence.AA/vertexData.Ancestors;
                             INF_LOG_score = ded_score*Math.log10(vertexData.Ancestors);
                             INF_LOG_2D_score = (ded_score*Math.log10(vertexData.Ancestors))*2;
                             if(vertexData.Descendants > 0){
-                                ind_score = evidence.second.DA/vertexData.Descendants;
+                                ind_score = evidence.DA/vertexData.Descendants;
                                 INF_LOG_score = INF_LOG_score + ind_score*Math.log10(vertexData.Descendants);
                                 INF_LOG_2D_score = INF_LOG_2D_score + ind_score*Math.log10(vertexData.Descendants);
                             }
                         }
                         else {
                             if(vertexData.Descendants > 0){
-                                ind_score = evidence.second.DA/vertexData.Descendants;
+                                ind_score = evidence.DA/vertexData.Descendants;
                                 INF_LOG_score = ind_score*Math.log10(vertexData.Descendants);
                                 INF_LOG_2D_score = ind_score*Math.log10(vertexData.Descendants);
                             }
@@ -417,93 +417,93 @@ public class LP_INF_local_recursive extends STest {
                         //Store values
                         var found :Boolean = false;
                         for(scoreIDX in cn_scores.range()){
-                            if(cn_scores(scoreIDX).first == evidence.second.CN_score) {
+                            if(cn_scores(scoreIDX).first == evidence.CN_score) {
                                 found = true;
-                                if(evidence.second.TP) cn_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.CN_score,new HitRate(cn_scores(scoreIDX).second.tp+1,cn_scores(scoreIDX).second.fp));
-                                else cn_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.CN_score, new HitRate(cn_scores(scoreIDX).second.tp,cn_scores(scoreIDX).second.fp+1));
+                                if(evidence.TP) cn_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.CN_score,new HitRate(cn_scores(scoreIDX).second.tp+1,cn_scores(scoreIDX).second.fp));
+                                else cn_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.CN_score, new HitRate(cn_scores(scoreIDX).second.tp,cn_scores(scoreIDX).second.fp+1));
                                 break;
                             }
                         }
                         if(!found) {
-                            if(evidence.second.TP) cn_scores.add(new Pair[Double,HitRate] (evidence.second.CN_score,new HitRate(1,0)));
-                            else cn_scores.add(new Pair[Double,HitRate] (evidence.second.CN_score,new HitRate(0,1)));
+                            if(evidence.TP) cn_scores.add(new Pair[Double,HitRate] (evidence.CN_score,new HitRate(1,0)));
+                            else cn_scores.add(new Pair[Double,HitRate] (evidence.CN_score,new HitRate(0,1)));
                         }
                         found = false;
                         for(scoreIDX in aa_scores.range()){
-                            if(aa_scores(scoreIDX).first == evidence.second.AA_score) {
+                            if(aa_scores(scoreIDX).first == evidence.AA_score) {
                                 found = true;
-                                if(evidence.second.TP) aa_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.AA_score,new HitRate(aa_scores(scoreIDX).second.tp+1,aa_scores(scoreIDX).second.fp));
-                                else aa_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.AA_score, new HitRate(aa_scores(scoreIDX).second.tp,aa_scores(scoreIDX).second.fp+1));
+                                if(evidence.TP) aa_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.AA_score,new HitRate(aa_scores(scoreIDX).second.tp+1,aa_scores(scoreIDX).second.fp));
+                                else aa_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.AA_score, new HitRate(aa_scores(scoreIDX).second.tp,aa_scores(scoreIDX).second.fp+1));
                                 break;
                             }
                         }
                         if(!found) {
-                            if(evidence.second.TP) aa_scores.add(new Pair[Double,HitRate] (evidence.second.AA_score,new HitRate(1,0)));
-                            else aa_scores.add(new Pair[Double,HitRate] (evidence.second.AA_score,new HitRate(0,1)));
+                            if(evidence.TP) aa_scores.add(new Pair[Double,HitRate] (evidence.AA_score,new HitRate(1,0)));
+                            else aa_scores.add(new Pair[Double,HitRate] (evidence.AA_score,new HitRate(0,1)));
                         }
                         found = false;
                         for(scoreIDX in ra_scores.range()){
-                            if(ra_scores(scoreIDX).first == evidence.second.RA_score) {
+                            if(ra_scores(scoreIDX).first == evidence.RA_score) {
                                 found = true;
-                                if(evidence.second.TP) ra_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.RA_score,new HitRate(ra_scores(scoreIDX).second.tp+1,ra_scores(scoreIDX).second.fp));
-                                else ra_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.RA_score, new HitRate(ra_scores(scoreIDX).second.tp,ra_scores(scoreIDX).second.fp+1));
+                                if(evidence.TP) ra_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.RA_score,new HitRate(ra_scores(scoreIDX).second.tp+1,ra_scores(scoreIDX).second.fp));
+                                else ra_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.RA_score, new HitRate(ra_scores(scoreIDX).second.tp,ra_scores(scoreIDX).second.fp+1));
                                 break;
                             }
                         }
                         if(!found) {
-                            if(evidence.second.TP) ra_scores.add(new Pair[Double,HitRate] (evidence.second.RA_score,new HitRate(1,0)));
-                            else ra_scores.add(new Pair[Double,HitRate] (evidence.second.RA_score,new HitRate(0,1)));
+                            if(evidence.TP) ra_scores.add(new Pair[Double,HitRate] (evidence.RA_score,new HitRate(1,0)));
+                            else ra_scores.add(new Pair[Double,HitRate] (evidence.RA_score,new HitRate(0,1)));
                         }
                         found = false;
                         for(scoreIDX in inf_scores.range()){
                             if(inf_scores(scoreIDX).first == INF_score) {
                                 found = true;
-                                if(evidence.second.TP) inf_scores(scoreIDX) = new Pair[Double,HitRate] (INF_score,new HitRate(inf_scores(scoreIDX).second.tp+1,inf_scores(scoreIDX).second.fp));
+                                if(evidence.TP) inf_scores(scoreIDX) = new Pair[Double,HitRate] (INF_score,new HitRate(inf_scores(scoreIDX).second.tp+1,inf_scores(scoreIDX).second.fp));
                                 else inf_scores(scoreIDX) = new Pair[Double,HitRate] (INF_score, new HitRate(inf_scores(scoreIDX).second.tp,inf_scores(scoreIDX).second.fp+1));
                                 break;
                             }
                         }
                         if(!found) {
-                            if(evidence.second.TP) inf_scores.add(new Pair[Double,HitRate] (INF_score,new HitRate(1,0)));
+                            if(evidence.TP) inf_scores.add(new Pair[Double,HitRate] (INF_score,new HitRate(1,0)));
                             else inf_scores.add(new Pair[Double,HitRate] (INF_score,new HitRate(0,1)));
                         }
                         found = false;
                         for(scoreIDX in inf_log_scores.range()){
                             if(inf_log_scores(scoreIDX).first == INF_LOG_score) {
                                 found = true;
-                                if(evidence.second.TP) inf_log_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_score,new HitRate(inf_log_scores(scoreIDX).second.tp+1,inf_log_scores(scoreIDX).second.fp));
+                                if(evidence.TP) inf_log_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_score,new HitRate(inf_log_scores(scoreIDX).second.tp+1,inf_log_scores(scoreIDX).second.fp));
                                 else inf_log_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_score, new HitRate(inf_log_scores(scoreIDX).second.tp,inf_log_scores(scoreIDX).second.fp+1));
                                 break;
                             }
                         }
                         if(!found) {
-                            if(evidence.second.TP) inf_log_scores.add(new Pair[Double,HitRate] (INF_LOG_score,new HitRate(1,0)));
+                            if(evidence.TP) inf_log_scores.add(new Pair[Double,HitRate] (INF_LOG_score,new HitRate(1,0)));
                             else inf_log_scores.add(new Pair[Double,HitRate] (INF_LOG_score,new HitRate(0,1)));
                         }
                         found = false;
                         for(scoreIDX in inf_2d_scores.range()){
                             if(inf_2d_scores(scoreIDX).first == INF_2D_score) {
                                 found = true;
-                                if(evidence.second.TP) inf_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_2D_score,new HitRate(inf_2d_scores(scoreIDX).second.tp+1,inf_2d_scores(scoreIDX).second.fp));
+                                if(evidence.TP) inf_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_2D_score,new HitRate(inf_2d_scores(scoreIDX).second.tp+1,inf_2d_scores(scoreIDX).second.fp));
                                 else inf_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_2D_score, new HitRate(inf_2d_scores(scoreIDX).second.tp,inf_2d_scores(scoreIDX).second.fp+1));
                                 break;
                             }
                         }
                         if(!found) {
-                            if(evidence.second.TP) inf_2d_scores.add(new Pair[Double,HitRate] (INF_2D_score,new HitRate(1,0)));
+                            if(evidence.TP) inf_2d_scores.add(new Pair[Double,HitRate] (INF_2D_score,new HitRate(1,0)));
                             else inf_2d_scores.add(new Pair[Double,HitRate] (INF_2D_score,new HitRate(0,1)));
                         }
                         found = false;
                         for(scoreIDX in inf_log_2d_scores.range()){
                             if(inf_log_2d_scores(scoreIDX).first == INF_LOG_2D_score) {
                                 found = true;
-                                if(evidence.second.TP) inf_log_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(inf_log_2d_scores(scoreIDX).second.tp+1,inf_log_2d_scores(scoreIDX).second.fp));
+                                if(evidence.TP) inf_log_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(inf_log_2d_scores(scoreIDX).second.tp+1,inf_log_2d_scores(scoreIDX).second.fp));
                                 else inf_log_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_2D_score, new HitRate(inf_log_2d_scores(scoreIDX).second.tp,inf_log_2d_scores(scoreIDX).second.fp+1));
                                 break;
                             }
                         }
                         if(!found) {
-                            if(evidence.second.TP) inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(1,0)));
+                            if(evidence.TP) inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(1,0)));
                             else inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(0,1)));
                         }
 //bufferedPrintln("== "+ctx.id()+" has for weight "+INF_score+" TP:"+inf_scores.get(INF_score)().tp+" FP:"+inf_scores.get(INF_score)().fp);
@@ -549,45 +549,7 @@ public class LP_INF_local_recursive extends STest {
                          currentEntry.setValue(new NeighborData(currentEntry.getValue()));
                     }
                 }
-                var evalCandidates: HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
-                //For each message recieved
-                for(mess in messages){
-                    val messageId:Long = mess.id_sender;
-                    //If the sender is myself, skip it cause I already have that information
-                    if(messageId == ctx.id()) continue;
-                    //If this vertex has not been updated yet, extend localGraph adding one step per neighbor in the message
-                    if(vertexData.localGraph.get(messageId)().neighbors.size()==0){
-                        for(newStep in mess.messageGraph.entries()){
-                            vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
-                            //Unless already added or is self, add as target according to localGraph
-                            var found :Boolean = false;
-                            if(!evalCandidates.containsKey(newStep.getKey()) & newStep.getKey() != ctx.id()) {
-                                evalCandidates.put(newStep.getKey(), true);
-                            }
-                        }
-                    }
-                }
-//printLocalGraph(vertexData.localGraph, 0);
-                //For each possible target: If outedge from self exists, remove from targets. Else store id, if TP, |Desc| and |Ances|
-                var LPTargetsEvidence :GrowableMemory[Pair[Long,Evidence] ] = new GrowableMemory[Pair[Long,Evidence] ] ();
-                for(currentTarget in evalCandidates.keySet()){
-                    //If outedge exists it is not target
-                    if(vertexData.localGraph.containsKey(currentTarget)){
-                        if(vertexData.localGraph.get(currentTarget)().direction > 0) continue;
-                    }
-                    //Otherwise add it to the Growable, together with it being TP
-                    var testFound :Boolean = false;
-                    for(testIDX in vertexData.testCandidates.range()) {
-                        if(vertexData.testCandidates(testIDX)==currentTarget) {
-                            testFound = true;
-                            break;
-                        }
-                    }
-                    LPTargetsEvidence.add(new Pair[Long,Evidence] (currentTarget,new Evidence(testFound)));
-                    //LPTargets.add(new Pair[Long,Boolean] (currentTarget,testFound));
-                    //LPTargets.add(new Pair[Long,Boolean] (currentTarget,vertexData.testCandidates.containsKey(currentTarget)));
-                    //LPTargets.put(currentTarget, vertexData.testCandidates.containsKey(currentTarget));
-                }
+                var LPTargetsEvidence :HashMap[Long,Evidence] = new HashMap[Long,Evidence] ();
                 output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
                 var cn_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
                 var ra_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
@@ -605,53 +567,91 @@ public class LP_INF_local_recursive extends STest {
                 inf_log_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
                 inf_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
                 inf_log_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                //Seek if the target can be reached through each possible firstStep, and calculate num and type of paths
-                for(firstStep in vertexData.localGraph.entries()){
-                    val first_dir = firstStep.getValue().direction;
-                    val first_key = firstStep.getKey();
-                    val first_degree = firstStep.getValue().neighbors.size();
-                    //For each target reachable, update # of directed (DD/AA/DA/AD) and undirected paths
-                    for(evidenceIDX in LPTargetsEvidence.range()){
-                        val evidence = LPTargetsEvidence(evidenceIDX);
-                        if(firstStep.getValue().neighbors.containsKey(evidence.first)){
-                             val second_dir = firstStep.getValue().neighbors.get(evidence.first)().direction;
-                             var dd :Double=evidence.second.DD , da :Double=evidence.second.DA, ad:Double=evidence.second.AD, aa:Double=evidence.second.AA, cn:Double = 0, aa_s:Double = 0, ra:Double = 0;
-                             if(second_dir == 0 & first_dir == 0) dd = dd+1;
-                             else if(second_dir == 1 & first_dir == 0) da = da+1;
-                             else if(second_dir == 1 & first_dir == 1) aa = aa+1;
-                             else if(second_dir == 0 & first_dir == 1) ad = ad+1;
-                             else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
-                             else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
-                             else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
-                             else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
-                             else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; 
-                                                                            da = da+1; aa = aa+1;}
-                             cn = evidence.second.CN_score+1;
-                             aa_s = evidence.second.AA_score + (1/(Math.log(first_degree)));
-                             ra = evidence.second.RA_score + (Double.implicit_operator_as(1)/first_degree);
-                             LPTargetsEvidence(evidenceIDX) = new Pair[Long,Evidence] (evidence.first, new Evidence(evidence.second.TP,dd,da,ad,aa,cn,aa_s,ra));
-                        }    
-                    }   
-                } 
+                //For each message recieved
+                for(mess in messages){
+                    val first_key = mess.id_sender;
+                    //TODO: Moving this check to the sending (ss=0) may slightly reduce imbalance
+                    //If the sender is myself, skip it cause I already have that information
+                    if(first_key == ctx.id()) continue;
+                    val  firstStep = vertexData.localGraph(first_key)();
+                    //If this vertex has not been updated yet, read all paths from its message
+                    if(firstStep.neighbors.size()==0){
+                        val first_dir = firstStep.direction;
+                        val first_degree = firstStep.neighbors.size();
+                        for(secondStep in mess.messageGraph.entries()){
+                            //TODO: Is this necessary?
+                            //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
+                            val second_key = secondStep.getKey();
+                            //If valid target !(self or direct out-neighbor)
+                            if(second_key != ctx.id() & (!vertexData.localGraph.containsKey(second_key) | !(vertexData.localGraph.get(second_key)().direction > 0))) {
+                                val second_dir = secondStep.getValue().direction;
+                                //If not yet added, add as target and if TP. Initialize scores
+                                if(!LPTargetsEvidence.containsKey(second_key)) {
+                                    var testFound :Boolean = false;
+                                    for(testIDX in vertexData.testCandidates.range()) {
+                                        if(vertexData.testCandidates(testIDX)==second_key) {
+                                            testFound = true;
+                                            break;
+                                        }
+                                    }
+                                    var dd :Double=0 , da :Double=0, ad:Double=0, aa:Double=0, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
+                                    if(second_dir == 0 & first_dir == 0) dd = dd+1;
+                                    else if(second_dir == 1 & first_dir == 0) da = da+1;
+                                    else if(second_dir == 1 & first_dir == 1) aa = aa+1;
+                                    else if(second_dir == 0 & first_dir == 1) ad = ad+1;
+                                    else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
+                                    else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
+                                    else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
+                                    else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
+                                    else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; da = da+1; aa = aa+1;}
+                                    cn = 1;
+                                    aa_s = (1/(Math.log(first_degree)));
+                                    ra = (Double.implicit_operator_as(1)/first_degree);
+                                    LPTargetsEvidence.put(second_key,new Evidence(testFound,dd,da,ad,aa,cn,aa_s,ra));
+                                }
+                                //Else new path, increase scores
+                                else{
+                                    val evidence = LPTargetsEvidence(second_key)();
+                                    var dd :Double=evidence.DD , da :Double=evidence.DA, ad:Double=evidence.AD, aa:Double=evidence.AA, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
+                                    if(second_dir == 0 & first_dir == 0) dd = dd+1;
+                                    else if(second_dir == 1 & first_dir == 0) da = da+1;
+                                    else if(second_dir == 1 & first_dir == 1) aa = aa+1;
+                                    else if(second_dir == 0 & first_dir == 1) ad = ad+1;
+                                    else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
+                                    else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
+                                    else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
+                                    else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
+                                    else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; 
+                                                                             da = da+1; aa = aa+1;}
+                                    cn = evidence.CN_score+1;
+                                    aa_s = evidence.AA_score + (1/(Math.log(first_degree)));
+                                    ra = evidence.RA_score + (Double.implicit_operator_as(1)/first_degree);
+                                    LPTargetsEvidence.put(second_key, new Evidence(evidence.TP,dd,da,ad,aa,cn,aa_s,ra));
+                                }
+                            }
+                        }
+                    }
+                }
+                    
                 //Once we have all the evidence, calculate all weights
-                for(evidenceIDX in LPTargetsEvidence.range()){ 
-                    val evidence = LPTargetsEvidence(evidenceIDX);
-                    if(evidence.second.TP) tpsFound++;
+                for(evidenceKey in LPTargetsEvidence.keySet()){ 
+                    val evidence = LPTargetsEvidence(evidenceKey)();
+                    if(evidence.TP) tpsFound++;
                     //Calculate INF related scores
                     var ded_score :Double = 0; var ind_score :Double = 0; var INF_LOG_score :Double = 0; var INF_LOG_2D_score :Double = 0;
                     if(vertexData.Ancestors > 0){
-                        ded_score = evidence.second.AA/vertexData.Ancestors;
+                        ded_score = evidence.AA/vertexData.Ancestors;
                         INF_LOG_score = ded_score*Math.log10(vertexData.Ancestors);
                         INF_LOG_2D_score = (ded_score*Math.log10(vertexData.Ancestors))*2;
                         if(vertexData.Descendants > 0){
-                            ind_score = evidence.second.DA/vertexData.Descendants;
+                            ind_score = evidence.DA/vertexData.Descendants;
                             INF_LOG_score = INF_LOG_score + ind_score*Math.log10(vertexData.Descendants);
                             INF_LOG_2D_score = INF_LOG_2D_score + ind_score*Math.log10(vertexData.Descendants);
                         }
                     }
                     else {
                         if(vertexData.Descendants > 0){
-                            ind_score = evidence.second.DA/vertexData.Descendants;
+                            ind_score = evidence.DA/vertexData.Descendants;
                             INF_LOG_score = ind_score*Math.log10(vertexData.Descendants);
                             INF_LOG_2D_score = ind_score*Math.log10(vertexData.Descendants);
                         }
@@ -661,93 +661,93 @@ public class LP_INF_local_recursive extends STest {
                     //Store values
                     var found :Boolean = false;
                     for(scoreIDX in cn_scores.range()){
-                        if(cn_scores(scoreIDX).first == evidence.second.CN_score) {
+                        if(cn_scores(scoreIDX).first == evidence.CN_score) {
                             found = true;
-                            if(evidence.second.TP) cn_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.CN_score,new HitRate(cn_scores(scoreIDX).second.tp+1,cn_scores(scoreIDX).second.fp));
-                            else cn_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.CN_score, new HitRate(cn_scores(scoreIDX).second.tp,cn_scores(scoreIDX).second.fp+1));
+                            if(evidence.TP) cn_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.CN_score,new HitRate(cn_scores(scoreIDX).second.tp+1,cn_scores(scoreIDX).second.fp));
+                            else cn_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.CN_score, new HitRate(cn_scores(scoreIDX).second.tp,cn_scores(scoreIDX).second.fp+1));
                             break;
                         }
                     }
                     if(!found) {
-                        if(evidence.second.TP) cn_scores.add(new Pair[Double,HitRate] (evidence.second.CN_score,new HitRate(1,0)));
-                        else cn_scores.add(new Pair[Double,HitRate] (evidence.second.CN_score,new HitRate(0,1)));
+                        if(evidence.TP) cn_scores.add(new Pair[Double,HitRate] (evidence.CN_score,new HitRate(1,0)));
+                        else cn_scores.add(new Pair[Double,HitRate] (evidence.CN_score,new HitRate(0,1)));
                     }
                     found = false;
                     for(scoreIDX in aa_scores.range()){
-                        if(aa_scores(scoreIDX).first == evidence.second.AA_score) {
+                        if(aa_scores(scoreIDX).first == evidence.AA_score) {
                             found = true;
-                            if(evidence.second.TP) aa_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.AA_score,new HitRate(aa_scores(scoreIDX).second.tp+1,aa_scores(scoreIDX).second.fp));
-                            else aa_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.AA_score, new HitRate(aa_scores(scoreIDX).second.tp,aa_scores(scoreIDX).second.fp+1));
+                            if(evidence.TP) aa_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.AA_score,new HitRate(aa_scores(scoreIDX).second.tp+1,aa_scores(scoreIDX).second.fp));
+                            else aa_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.AA_score, new HitRate(aa_scores(scoreIDX).second.tp,aa_scores(scoreIDX).second.fp+1));
                             break;
                         }
                     }
                     if(!found) {
-                        if(evidence.second.TP) aa_scores.add(new Pair[Double,HitRate] (evidence.second.AA_score,new HitRate(1,0)));
-                        else aa_scores.add(new Pair[Double,HitRate] (evidence.second.AA_score,new HitRate(0,1)));
+                        if(evidence.TP) aa_scores.add(new Pair[Double,HitRate] (evidence.AA_score,new HitRate(1,0)));
+                        else aa_scores.add(new Pair[Double,HitRate] (evidence.AA_score,new HitRate(0,1)));
                     }
                     found = false;
                     for(scoreIDX in ra_scores.range()){
-                        if(ra_scores(scoreIDX).first == evidence.second.RA_score) {
+                        if(ra_scores(scoreIDX).first == evidence.RA_score) {
                             found = true;
-                            if(evidence.second.TP) ra_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.RA_score,new HitRate(ra_scores(scoreIDX).second.tp+1,ra_scores(scoreIDX).second.fp));
-                            else ra_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.second.RA_score, new HitRate(ra_scores(scoreIDX).second.tp,ra_scores(scoreIDX).second.fp+1));
+                            if(evidence.TP) ra_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.RA_score,new HitRate(ra_scores(scoreIDX).second.tp+1,ra_scores(scoreIDX).second.fp));
+                            else ra_scores(scoreIDX) = new Pair[Double,HitRate] (evidence.RA_score, new HitRate(ra_scores(scoreIDX).second.tp,ra_scores(scoreIDX).second.fp+1));
                             break;
                         }
                     }
                     if(!found) {
-                        if(evidence.second.TP) ra_scores.add(new Pair[Double,HitRate] (evidence.second.RA_score,new HitRate(1,0)));
-                        else ra_scores.add(new Pair[Double,HitRate] (evidence.second.RA_score,new HitRate(0,1)));
+                        if(evidence.TP) ra_scores.add(new Pair[Double,HitRate] (evidence.RA_score,new HitRate(1,0)));
+                        else ra_scores.add(new Pair[Double,HitRate] (evidence.RA_score,new HitRate(0,1)));
                     }
                     found = false;
                     for(scoreIDX in inf_scores.range()){
                         if(inf_scores(scoreIDX).first == INF_score) {
                             found = true;
-                            if(evidence.second.TP) inf_scores(scoreIDX) = new Pair[Double,HitRate] (INF_score,new HitRate(inf_scores(scoreIDX).second.tp+1,inf_scores(scoreIDX).second.fp));
+                            if(evidence.TP) inf_scores(scoreIDX) = new Pair[Double,HitRate] (INF_score,new HitRate(inf_scores(scoreIDX).second.tp+1,inf_scores(scoreIDX).second.fp));
                             else inf_scores(scoreIDX) = new Pair[Double,HitRate] (INF_score, new HitRate(inf_scores(scoreIDX).second.tp,inf_scores(scoreIDX).second.fp+1));
                             break;
                         }
                     }
                     if(!found) {
-                        if(evidence.second.TP) inf_scores.add(new Pair[Double,HitRate] (INF_score,new HitRate(1,0)));
+                        if(evidence.TP) inf_scores.add(new Pair[Double,HitRate] (INF_score,new HitRate(1,0)));
                         else inf_scores.add(new Pair[Double,HitRate] (INF_score,new HitRate(0,1)));
                     }
                     found = false;
                     for(scoreIDX in inf_log_scores.range()){
                         if(inf_log_scores(scoreIDX).first == INF_LOG_score) {
                             found = true;
-                            if(evidence.second.TP) inf_log_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_score,new HitRate(inf_log_scores(scoreIDX).second.tp+1,inf_log_scores(scoreIDX).second.fp));
+                            if(evidence.TP) inf_log_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_score,new HitRate(inf_log_scores(scoreIDX).second.tp+1,inf_log_scores(scoreIDX).second.fp));
                             else inf_log_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_score, new HitRate(inf_log_scores(scoreIDX).second.tp,inf_log_scores(scoreIDX).second.fp+1));
                             break;
                         }
                     }
                     if(!found) {
-                        if(evidence.second.TP) inf_log_scores.add(new Pair[Double,HitRate] (INF_LOG_score,new HitRate(1,0)));
+                        if(evidence.TP) inf_log_scores.add(new Pair[Double,HitRate] (INF_LOG_score,new HitRate(1,0)));
                         else inf_log_scores.add(new Pair[Double,HitRate] (INF_LOG_score,new HitRate(0,1)));
                     }
                     found = false;
                     for(scoreIDX in inf_2d_scores.range()){
                         if(inf_2d_scores(scoreIDX).first == INF_2D_score) {
                             found = true;
-                            if(evidence.second.TP) inf_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_2D_score,new HitRate(inf_2d_scores(scoreIDX).second.tp+1,inf_2d_scores(scoreIDX).second.fp));
+                            if(evidence.TP) inf_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_2D_score,new HitRate(inf_2d_scores(scoreIDX).second.tp+1,inf_2d_scores(scoreIDX).second.fp));
                             else inf_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_2D_score, new HitRate(inf_2d_scores(scoreIDX).second.tp,inf_2d_scores(scoreIDX).second.fp+1));
                             break;
                         }
                     }
                     if(!found) {
-                        if(evidence.second.TP) inf_2d_scores.add(new Pair[Double,HitRate] (INF_2D_score,new HitRate(1,0)));
+                        if(evidence.TP) inf_2d_scores.add(new Pair[Double,HitRate] (INF_2D_score,new HitRate(1,0)));
                         else inf_2d_scores.add(new Pair[Double,HitRate] (INF_2D_score,new HitRate(0,1)));
                     }
                     found = false;
                     for(scoreIDX in inf_log_2d_scores.range()){
                         if(inf_log_2d_scores(scoreIDX).first == INF_LOG_2D_score) {
                             found = true;
-                            if(evidence.second.TP) inf_log_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(inf_log_2d_scores(scoreIDX).second.tp+1,inf_log_2d_scores(scoreIDX).second.fp));
+                            if(evidence.TP) inf_log_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(inf_log_2d_scores(scoreIDX).second.tp+1,inf_log_2d_scores(scoreIDX).second.fp));
                             else inf_log_2d_scores(scoreIDX) = new Pair[Double,HitRate] (INF_LOG_2D_score, new HitRate(inf_log_2d_scores(scoreIDX).second.tp,inf_log_2d_scores(scoreIDX).second.fp+1));
                             break;
                         }
                     }
                     if(!found) {
-                        if(evidence.second.TP) inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(1,0)));
+                        if(evidence.TP) inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(1,0)));
                         else inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(0,1)));
                     }
 //bufferedPrintln("== "+ctx.id()+" has for weight "+INF_score+" TP:"+inf_scores.get(INF_score)().tp+" FP:"+inf_scores.get(INF_score)().fp);
@@ -773,7 +773,6 @@ public class LP_INF_local_recursive extends STest {
                 output.add(new ScorePair("INF_2D",inf_2d_scores));
                 output.add(new ScorePair("INF_LOG_2D",inf_log_2d_scores));
                 ctx.setValue(new VertexData(output,new HashMap[Long,NeighborData]()));
-
                 ctx.voteToHalt();
             }
 	    },
