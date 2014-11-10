@@ -273,7 +273,7 @@ public class LP_INF_local_recursive extends STest {
                 }
             }
 
-            //[2:before-last] superstep: read the messages, extend the localGraph with the information arriving
+            //[1:before-last] superstep: read the messages, extend the localGraph with the information arriving
             if(ctx.superstep() > 0 & ctx.superstep() < splitMessage){
                 val m :Message = Message(ctx.id(),ctx.value().localGraphOriginal);
                 val tupleOut = ctx.outEdges();
@@ -339,7 +339,10 @@ public class LP_INF_local_recursive extends STest {
                                 //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
                                 val second_key = secondStep.getKey();
                                 //If valid target !(self or direct out-neighbor)
-                                if(second_key != ctx.id() & (!vertexData.localGraph.containsKey(second_key) | !(vertexData.localGraph.get(second_key)().direction > 0))) {
+                                if(vertexData.localGraph.containsKey(second_key)){
+                                    if(vertexData.localGraph.get(second_key)().direction > 0) continue;
+                                }
+                                if(second_key != ctx.id()){
                                     val second_dir = secondStep.getValue().direction;
                                     //If not yet added, add as target and if TP. Initialize scores
                                     if(!LPTargetsEvidence.containsKey(second_key)) {
@@ -583,7 +586,10 @@ public class LP_INF_local_recursive extends STest {
                             //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
                             val second_key = secondStep.getKey();
                             //If valid target !(self or direct out-neighbor)
-                            if(second_key != ctx.id() & (!vertexData.localGraph.containsKey(second_key) | !(vertexData.localGraph.get(second_key)().direction > 0))) {
+                            if(vertexData.localGraph.containsKey(second_key)){
+                                if(vertexData.localGraph.get(second_key)().direction > 0) continue;
+                            }
+                            if(second_key != ctx.id()){
                                 val second_dir = secondStep.getValue().direction;
                                 //If not yet added, add as target and if TP. Initialize scores
                                 if(!LPTargetsEvidence.containsKey(second_key)) {
