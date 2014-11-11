@@ -339,7 +339,6 @@ public class LP_INF_local_recursive extends STest {
                         //If this vertex has not been updated yet, read all paths from its message. Avoid duplicate messages: A<--->B
                         if(firstStep.neighbors.size()==0){
                             val first_dir = firstStep.direction;
-                            //val first_degree = firstStep.neighbors.size();
                             val first_degree = mess.messageGraph.size();
                             for(secondStep in mess.messageGraph.entries()){
                                 //TODO: Is this necessary?
@@ -374,7 +373,7 @@ public class LP_INF_local_recursive extends STest {
                                         aa_s = (1/(Math.log(first_degree)));
                                         ra = (Double.implicit_operator_as(1)/first_degree);
                                         LPTargetsEvidence.put(second_key,new Evidence(testFound,dd,da,ad,aa,cn,aa_s,ra));
-bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+testFound+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
+//bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+testFound+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
                                     }
                                     //Else new path, increase scores
                                     else{
@@ -393,7 +392,7 @@ bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP
                                         cn = evidence.CN_score+1;
                                         aa_s = evidence.AA_score + (1/(Math.log(first_degree)));
                                         ra = evidence.RA_score + (Double.implicit_operator_as(1)/first_degree);
-bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+evidence.TP+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
+//bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+evidence.TP+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
                                         LPTargetsEvidence.put(second_key, new Evidence(evidence.TP,dd,da,ad,aa,cn,aa_s,ra));
                                     }
                                 }
@@ -589,7 +588,6 @@ bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP
                     //If this vertex has not been updated yet, read all paths from its message
                     if(firstStep.neighbors.size()==0){
                         val first_dir = firstStep.direction;
-                        //val first_degree = firstStep.neighbors.size();
                         val first_degree = mess.messageGraph.size();
                         for(secondStep in mess.messageGraph.entries()){
                             //TODO: Is this necessary?
@@ -623,7 +621,7 @@ bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP
                                     cn = 1;
                                     aa_s = (1/(Math.log(first_degree)));
                                     ra = (Double.implicit_operator_as(1)/first_degree);
-bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+testFound+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
+//bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+testFound+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
                                     LPTargetsEvidence.put(second_key,new Evidence(testFound,dd,da,ad,aa,cn,aa_s,ra));
                                 }
                                 //Else new path, increase scores
@@ -643,7 +641,7 @@ bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP
                                     cn = evidence.CN_score+1;
                                     aa_s = evidence.AA_score + (1/(Math.log(first_degree)));
                                     ra = evidence.RA_score + (Double.implicit_operator_as(1)/first_degree);
-bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+evidence.TP+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
+//bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+evidence.TP+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
                                     LPTargetsEvidence.put(second_key, new Evidence(evidence.TP,dd,da,ad,aa,cn,aa_s,ra));
                                 }
                             }
