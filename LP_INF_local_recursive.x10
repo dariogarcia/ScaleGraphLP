@@ -199,7 +199,7 @@ public class LP_INF_local_recursive extends STest {
         }
         xpregel.iterate[Message,GrowableMemory[ScorePair]]((ctx :VertexContext[VertexData, Byte, Message, GrowableMemory[ScorePair]], messages :MemoryChunk[Message]) => {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
-	        //and all  ut-edges as path with one step: <1,Id>. Also, send paths to all vertices
+	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
                 var localGraph :HashMap[Long,NeighborData] = new HashMap[Long,NeighborData]();
                 var localGraphOrig :HashMap[Long,NeighborData] = new HashMap[Long,NeighborData]();
@@ -212,8 +212,9 @@ public class LP_INF_local_recursive extends STest {
                 var testNeighs :GrowableMemory[Long] = new GrowableMemory[Long]();
                 //For each vertex connected through an outgoing edges
                 for(idx in weightsOut.range()) {
-                    //If the vertex is connected through an edge with weight = 1, add the vertex to list of neighbors
+                    //If the vertex is connected through an edge with weight = 1 (train edge), add the vertex to list of neighbors
                     if(weightsOut(idx).compareTo(1) == 0){
+                        //If it was already added, update 
                         if(localGraph.containsKey(idsOut(idx))){
                             if(localGraph.get(idsOut(idx))().direction == 0){
                                 localGraph.put(idsOut(idx), new NeighborData(2));
@@ -258,16 +259,18 @@ public class LP_INF_local_recursive extends STest {
                     val firstStepRes:VertexData = new VertexData(testNeighs,localGraph,localGraphOrig,descendants,ancestors);
                     ctx.setValue(firstStepRes);
                     val m :Message = Message(ctx.id(),localGraphOrig);
-
+                    //Structure to make sure messages are sent only once per target
+                    var bidiVertices :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                     //Send the list to all neighbors connected through positive link within this iteration
                     for(idx in ctx.inEdgesId().range()) {
                         if(ctx.inEdgesValue()(idx).compareTo(1) == 0 & ctx.inEdgesId()(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
                             ctx.sendMessage(ctx.inEdgesId()(idx),m);
+                            bidiVertices.put(ctx.inEdgesId()(idx),false);
                         }
                     }
                     for(idx in idsOut.range())  {
                         if(weightsOut(idx).compareTo(1) == 0 & idsOut(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
-                            ctx.sendMessage(idsOut(idx),m);
+                            if(!bidiVertices.containsKey(idsOut(idx))) ctx.sendMessage(idsOut(idx),m);
                         }
                     }
                 }
@@ -279,15 +282,18 @@ public class LP_INF_local_recursive extends STest {
                 val tupleOut = ctx.outEdges();
                 val idsOut = tupleOut.get1();
                 val weightsOut = tupleOut.get2();
+                //Structure to make sure messages are sent only once per target
+                var bidiVertices :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                 //Send the list to all neighbors connected through positive link within this iteration
                 for(idx in ctx.inEdgesId().range()) {
                     if(ctx.inEdgesValue()(idx).compareTo(1) == 0 & ctx.inEdgesId()(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
                         ctx.sendMessage(ctx.inEdgesId()(idx),m);
+                            bidiVertices.put(ctx.inEdgesId()(idx),false);
                     }
                 }
                 for(idx in idsOut.range())  {
                     if(weightsOut(idx).compareTo(1) == 0 & idsOut(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
-                        ctx.sendMessage(idsOut(idx),m);
+                        if(!bidiVertices.containsKey(idsOut(idx))) ctx.sendMessage(idsOut(idx),m);
                     }
                 }
                 //If its messages were not sent the previous superstep
@@ -330,10 +336,11 @@ public class LP_INF_local_recursive extends STest {
                         //If the sender is myself, skip it cause I already have that information
                         if(first_key == ctx.id()) continue;
                         val  firstStep = vertexData.localGraph(first_key)();
-                        //If this vertex has not been updated yet, read all paths from its message
+                        //If this vertex has not been updated yet, read all paths from its message. Avoid duplicate messages: A<--->B
                         if(firstStep.neighbors.size()==0){
                             val first_dir = firstStep.direction;
-                            val first_degree = firstStep.neighbors.size();
+                            //val first_degree = firstStep.neighbors.size();
+                            val first_degree = mess.messageGraph.size();
                             for(secondStep in mess.messageGraph.entries()){
                                 //TODO: Is this necessary?
                                 //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
@@ -367,6 +374,7 @@ public class LP_INF_local_recursive extends STest {
                                         aa_s = (1/(Math.log(first_degree)));
                                         ra = (Double.implicit_operator_as(1)/first_degree);
                                         LPTargetsEvidence.put(second_key,new Evidence(testFound,dd,da,ad,aa,cn,aa_s,ra));
+bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+testFound+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
                                     }
                                     //Else new path, increase scores
                                     else{
@@ -385,6 +393,7 @@ public class LP_INF_local_recursive extends STest {
                                         cn = evidence.CN_score+1;
                                         aa_s = evidence.AA_score + (1/(Math.log(first_degree)));
                                         ra = evidence.RA_score + (Double.implicit_operator_as(1)/first_degree);
+bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+evidence.TP+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
                                         LPTargetsEvidence.put(second_key, new Evidence(evidence.TP,dd,da,ad,aa,cn,aa_s,ra));
                                     }
                                 }
@@ -580,7 +589,8 @@ public class LP_INF_local_recursive extends STest {
                     //If this vertex has not been updated yet, read all paths from its message
                     if(firstStep.neighbors.size()==0){
                         val first_dir = firstStep.direction;
-                        val first_degree = firstStep.neighbors.size();
+                        //val first_degree = firstStep.neighbors.size();
+                        val first_degree = mess.messageGraph.size();
                         for(secondStep in mess.messageGraph.entries()){
                             //TODO: Is this necessary?
                             //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
@@ -613,6 +623,7 @@ public class LP_INF_local_recursive extends STest {
                                     cn = 1;
                                     aa_s = (1/(Math.log(first_degree)));
                                     ra = (Double.implicit_operator_as(1)/first_degree);
+bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+testFound+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
                                     LPTargetsEvidence.put(second_key,new Evidence(testFound,dd,da,ad,aa,cn,aa_s,ra));
                                 }
                                 //Else new path, increase scores
@@ -632,6 +643,7 @@ public class LP_INF_local_recursive extends STest {
                                     cn = evidence.CN_score+1;
                                     aa_s = evidence.AA_score + (1/(Math.log(first_degree)));
                                     ra = evidence.RA_score + (Double.implicit_operator_as(1)/first_degree);
+bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+evidence.TP+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
                                     LPTargetsEvidence.put(second_key, new Evidence(evidence.TP,dd,da,ad,aa,cn,aa_s,ra));
                                 }
                             }
