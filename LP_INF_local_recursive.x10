@@ -102,21 +102,21 @@ public class LP_INF_local_recursive extends STest {
         
     public static struct Message{
         val id_sender:Long;
-        val messageGraph :HashMap[Long,NeighborData];
-        public def this(i: Long, n :HashMap[Long,NeighborData]){
+        val messageGraph :HashMap[Long,x10.lang.Int];
+        public def this(i: Long, n :HashMap[Long,x10.lang.Int]){
             id_sender = i;
             messageGraph = n;
         }
     }
 
     public static struct VertexData{
-        val localGraph :HashMap[Long,NeighborData];
+        val localGraph :HashMap[Long,x10.lang.Int];
         val bidiNeighbors :GrowableMemory[Long];
         val testCandidates: GrowableMemory[Long];
         val Descendants: Long;
         val Ancestors: Long;
         val last_data: GrowableMemory[ScorePair];
-        public def this(test: GrowableMemory[Long], st :HashMap[Long,NeighborData], d: Long, a: Long, bidi :GrowableMemory[Long]){
+        public def this(test: GrowableMemory[Long], st :HashMap[Long,x10.lang.Int], d: Long, a: Long, bidi :GrowableMemory[Long]){
             localGraph = st;
             testCandidates = test;
             Descendants = d;
@@ -125,8 +125,8 @@ public class LP_INF_local_recursive extends STest {
             bidiNeighbors = bidi;
         }
         //Constructor before return
-        public def this(last: GrowableMemory[ScorePair], orig :HashMap[Long,NeighborData]){
-            localGraph = new HashMap[Long,NeighborData]();
+        public def this(last: GrowableMemory[ScorePair]){
+            localGraph = new HashMap[Long,x10.lang.Int]();
             testCandidates = new GrowableMemory[Long]();
             Descendants = 0;
             Ancestors = 0;
@@ -135,7 +135,8 @@ public class LP_INF_local_recursive extends STest {
         }
         //Constructor used for empty return of disconnected vertices
         public def this(){
-            localGraph = new HashMap[Long,NeighborData]();
+            //Direction determines if node is descendant (0, a vertex pointing to self) or ancestor (1, a vertex self points to). 2 means both
+            localGraph = new HashMap[Long,x10.lang.Int]();
             Descendants = 0;
             Ancestors = 0;
             last_data = new GrowableMemory[ScorePair]();
@@ -144,29 +145,6 @@ public class LP_INF_local_recursive extends STest {
         }
     }
 
-    public static struct NeighborData {
-        //Direction determines if node is descendant (0, a vertex pointing to self) or ancestor (1, a vertex self points to). 2 means both
-        val direction: x10.lang.Int;
-        val neighbors :HashMap[Long,NeighborData];
-        //val neighbors :GrowableMemory[Pair[Long,NeighborData] ];
-        public def this(d: x10.lang.Int) {
-            direction = d;
-            //neighbors = new GrowableMemory[Pair[Long,NeighborData] ]();
-            neighbors = null;
-        }
-        public def this(nd: NeighborData) {
-            direction = nd.direction;
-            neighbors = new HashMap[Long,NeighborData]();
-            //neighbors = new GrowableMemory[Pair[Long,NeighborData] ]();
-        }
-//TODO:Watch out with this. Used in processing of messages as the begining of superstep 1. Its getting out of hand.
-        public def this() {
-            direction = -1;
-            neighbors = new HashMap[Long,NeighborData]();
-            //neighbors = new GrowableMemory[Pair[Long,NeighborData] ]();
-        }
-    }
-        
     public static def main(args:Array[String](1)) {
         new LP_INF_local_recursive().run(args);
         finish for(p in Team.WORLD.placeGroup()) at(p) async { flush(); }
@@ -201,7 +179,7 @@ public class LP_INF_local_recursive extends STest {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
-                var localGraph :HashMap[Long,NeighborData] = new HashMap[Long,NeighborData]();
+                var localGraph :HashMap[Long,x10.lang.Int] = new HashMap[Long,x10.lang.Int]();
                 var ancestors :Long = 0; var descendants :Long = 0;
                 //Load all outgoing edges of vertex
                 val tupleOut = ctx.outEdges();
@@ -216,7 +194,7 @@ public class LP_INF_local_recursive extends STest {
                     //If the vertex is connected through an edge with weight = 1 (train edge), add the vertex to list of neighbors
                     if(weightsOut(idx).compareTo(1) == 0){
                         if(!localGraph.containsKey(idsOut(idx))){
-                            localGraph.put(idsOut(idx), new NeighborData(1));
+                            localGraph.put(idsOut(idx),1);
                             ancestors++;
                         }
                     }
@@ -228,14 +206,14 @@ public class LP_INF_local_recursive extends STest {
                     //If the vertex is connected through an edge with weight = 1, add the vertex to list of neighbors
                     if(ctx.inEdgesValue()(idx).compareTo(1) == 0){
                         if(localGraph.containsKey(ctx.inEdgesId()(idx))){
-                            if(localGraph.get(ctx.inEdgesId()(idx))().direction == 1){
-                                localGraph.put(ctx.inEdgesId()(idx),new NeighborData(2));
+                            if(localGraph.get(ctx.inEdgesId()(idx))() == 1){
+                                localGraph.put(ctx.inEdgesId()(idx),2);
                                 descendants++;
                                 bidiVertices.add(ctx.inEdgesId()(idx));
                             }
                         }
                         if(!localGraph.containsKey(ctx.inEdgesId()(idx))){
-                            localGraph.put(ctx.inEdgesId()(idx),new NeighborData(0));
+                            localGraph.put(ctx.inEdgesId()(idx),0);
                             descendants++;
                         }
                     }
@@ -313,17 +291,16 @@ public class LP_INF_local_recursive extends STest {
                         //TODO: Moving this check to the sending may slightly reduce imbalance
                         //If the sender is myself, skip it cause I already have that information
                         if(first_key == ctx.id()) continue;
-                        val firstStep = vertexData.localGraph(first_key)();
-                        val first_dir = firstStep.direction;
+                        val first_dir = vertexData.localGraph(first_key)();
                         val first_degree = mess.messageGraph.size();
                         for(secondStep in mess.messageGraph.entries()){
                             val second_key = secondStep.getKey();
                             //If valid target !(self or direct out-neighbor)
                             if(vertexData.localGraph.containsKey(second_key)){
-                                if(vertexData.localGraph.get(second_key)().direction > 0) continue;
+                                if(vertexData.localGraph.get(second_key)() > 0) continue;
                             }
                             if(second_key != ctx.id()){
-                                val second_dir = secondStep.getValue().direction;
+                                val second_dir = secondStep.getValue();
                                 //If not yet added, add as target and if TP. Initialize scores
                                 if(!LPTargetsEvidence.containsKey(second_key)) {
                                     var testFound :Boolean = false;
@@ -526,7 +503,7 @@ public class LP_INF_local_recursive extends STest {
                     output.add(new ScorePair("INF_LOG",inf_log_scores));
                     output.add(new ScorePair("INF_2D",inf_2d_scores));
                     output.add(new ScorePair("INF_LOG_2D",inf_log_2d_scores));
-                    ctx.setValue(new VertexData(output,new HashMap[Long,NeighborData]()));
+                    ctx.setValue(new VertexData(output));
                     return;
                 }
             }
@@ -545,17 +522,16 @@ public class LP_INF_local_recursive extends STest {
                     //TODO: Moving this check to the sending may slightly reduce imbalance
                     //If the sender is myself, skip it cause I already have that information
                     if(first_key == ctx.id()) continue;
-                    val firstStep = vertexData.localGraph(first_key)();
-                    val first_dir = firstStep.direction;
+                    val first_dir = vertexData.localGraph(first_key)();
                     val first_degree = mess.messageGraph.size();
                     for(secondStep in mess.messageGraph.entries()){
                         val second_key = secondStep.getKey();
                         //If valid target !(self or direct out-neighbor)
                         if(vertexData.localGraph.containsKey(second_key)){
-                            if(vertexData.localGraph.get(second_key)().direction > 0) continue;
+                            if(vertexData.localGraph.get(second_key)() > 0) continue;
                         }
                         if(second_key != ctx.id()){
-                            val second_dir = secondStep.getValue().direction;
+                            val second_dir = secondStep.getValue();
                             //If not yet added, add as target and if TP. Initialize scores
                             if(!LPTargetsEvidence.containsKey(second_key)) {
                                 var testFound :Boolean = false;
@@ -756,7 +732,7 @@ public class LP_INF_local_recursive extends STest {
                 output.add(new ScorePair("INF_LOG",inf_log_scores));
                 output.add(new ScorePair("INF_2D",inf_2d_scores));
                 output.add(new ScorePair("INF_LOG_2D",inf_log_2d_scores));
-                ctx.setValue(new VertexData(output,new HashMap[Long,NeighborData]()));
+                ctx.setValue(new VertexData(output));
                 ctx.voteToHalt();
             }
 	    },
