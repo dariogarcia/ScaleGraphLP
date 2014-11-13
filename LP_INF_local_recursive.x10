@@ -111,36 +111,36 @@ public class LP_INF_local_recursive extends STest {
 
     public static struct VertexData{
         val localGraph :HashMap[Long,NeighborData];
-        val localGraphOriginal :HashMap[Long,NeighborData];
+        val bidiNeighbors :GrowableMemory[Long];
         val testCandidates: GrowableMemory[Long];
         val Descendants: Long;
         val Ancestors: Long;
         val last_data: GrowableMemory[ScorePair];
-        public def this(test: GrowableMemory[Long], st :HashMap[Long,NeighborData], orig :HashMap[Long,NeighborData], d: Long, a: Long){
+        public def this(test: GrowableMemory[Long], st :HashMap[Long,NeighborData], d: Long, a: Long, bidi :GrowableMemory[Long]){
             localGraph = st;
-            localGraphOriginal = orig;
             testCandidates = test;
             Descendants = d;
             Ancestors = a;
             last_data = new GrowableMemory[ScorePair]();
+            bidiNeighbors = bidi;
         }
         //Constructor before return
         public def this(last: GrowableMemory[ScorePair], orig :HashMap[Long,NeighborData]){
             localGraph = new HashMap[Long,NeighborData]();
-            localGraphOriginal = orig;
             testCandidates = new GrowableMemory[Long]();
             Descendants = 0;
             Ancestors = 0;
             last_data = last;
+            bidiNeighbors = new GrowableMemory[Long]();
         }
         //Constructor used for empty return of disconnected vertices
         public def this(){
             localGraph = new HashMap[Long,NeighborData]();
-            localGraphOriginal = new HashMap[Long,NeighborData]();
             Descendants = 0;
             Ancestors = 0;
             last_data = new GrowableMemory[ScorePair]();
             testCandidates = new GrowableMemory[Long]();
+            bidiNeighbors = new GrowableMemory[Long]();
         }
     }
 
@@ -202,7 +202,6 @@ public class LP_INF_local_recursive extends STest {
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
                 var localGraph :HashMap[Long,NeighborData] = new HashMap[Long,NeighborData]();
-                var localGraphOrig :HashMap[Long,NeighborData] = new HashMap[Long,NeighborData]();
                 var ancestors :Long = 0; var descendants :Long = 0;
                 //Load all outgoing edges of vertex
                 val tupleOut = ctx.outEdges();
@@ -210,21 +209,14 @@ public class LP_INF_local_recursive extends STest {
                 val weightsOut = tupleOut.get2();
                 //Store those vertex linked by an outgoing edge which are to be used as test
                 var testNeighs :GrowableMemory[Long] = new GrowableMemory[Long]();
+                //Structure to make sure messages are sent only once per target
+                var bidiVertices :GrowableMemory[Long] = new GrowableMemory[Long]();
                 //For each vertex connected through an outgoing edges
                 for(idx in weightsOut.range()) {
                     //If the vertex is connected through an edge with weight = 1 (train edge), add the vertex to list of neighbors
                     if(weightsOut(idx).compareTo(1) == 0){
-                        //If it was already added, update 
-                        if(localGraph.containsKey(idsOut(idx))){
-                            if(localGraph.get(idsOut(idx))().direction == 0){
-                                localGraph.put(idsOut(idx), new NeighborData(2));
-                                localGraphOrig.put(idsOut(idx), new NeighborData(2));
-                                ancestors++;
-                            }
-                        }
                         if(!localGraph.containsKey(idsOut(idx))){
                             localGraph.put(idsOut(idx), new NeighborData(1));
-                            localGraphOrig.put(idsOut(idx), new NeighborData(1));
                             ancestors++;
                         }
                     }
@@ -238,13 +230,12 @@ public class LP_INF_local_recursive extends STest {
                         if(localGraph.containsKey(ctx.inEdgesId()(idx))){
                             if(localGraph.get(ctx.inEdgesId()(idx))().direction == 1){
                                 localGraph.put(ctx.inEdgesId()(idx),new NeighborData(2));
-                                localGraphOrig.put(ctx.inEdgesId()(idx),new NeighborData(2));
                                 descendants++;
+                                bidiVertices.add(ctx.inEdgesId()(idx));
                             }
                         }
                         if(!localGraph.containsKey(ctx.inEdgesId()(idx))){
                             localGraph.put(ctx.inEdgesId()(idx),new NeighborData(0));
-                            localGraphOrig.put(ctx.inEdgesId()(idx),new NeighborData(0));
                             descendants++;
                         }
                     }
@@ -255,45 +246,55 @@ public class LP_INF_local_recursive extends STest {
                     ctx.voteToHalt();
                 }
                 else{
-                    //Save the built list of one step neighbors
-                    val firstStepRes:VertexData = new VertexData(testNeighs,localGraph,localGraphOrig,descendants,ancestors);
-                    ctx.setValue(firstStepRes);
-                    val m :Message = Message(ctx.id(),localGraphOrig);
-                    //Structure to make sure messages are sent only once per target
-                    var bidiVertices :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
+                    val m :Message = Message(ctx.id(),localGraph);
                     //Send the list to all neighbors connected through positive link within this iteration
                     for(idx in ctx.inEdgesId().range()) {
                         if(ctx.inEdgesValue()(idx).compareTo(1) == 0 & ctx.inEdgesId()(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
                             ctx.sendMessage(ctx.inEdgesId()(idx),m);
-                            bidiVertices.put(ctx.inEdgesId()(idx),false);
                         }
                     }
                     for(idx in idsOut.range())  {
                         if(weightsOut(idx).compareTo(1) == 0 & idsOut(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
-                            if(!bidiVertices.containsKey(idsOut(idx))) ctx.sendMessage(idsOut(idx),m);
+                            var bidiFound :Boolean = false;
+                            for(bidiIDX in bidiVertices.range()) {
+                                if(bidiVertices(bidiIDX)==idsOut(idx)) {
+                                    bidiFound = true;
+                                    break;
+                                }
+                            }
+                            if(bidiFound)continue;
+                            ctx.sendMessage(idsOut(idx),m);
                         }
                     }
+                    //Save the built list of one step neighbors
+                    val firstStepRes:VertexData = new VertexData(testNeighs,localGraph,descendants,ancestors,bidiVertices);
+                    ctx.setValue(firstStepRes);
                 }
             }
 
             //[1:before-last] superstep: read the messages, extend the localGraph with the information arriving
             if(ctx.superstep() > 0 & ctx.superstep() < splitMessage){
-                val m :Message = Message(ctx.id(),ctx.value().localGraphOriginal);
+                val m :Message = Message(ctx.id(),ctx.value().localGraph);
                 val tupleOut = ctx.outEdges();
                 val idsOut = tupleOut.get1();
                 val weightsOut = tupleOut.get2();
-                //Structure to make sure messages are sent only once per target
-                var bidiVertices :HashMap[Long,Boolean] = new HashMap[Long,Boolean]();
                 //Send the list to all neighbors connected through positive link within this iteration
                 for(idx in ctx.inEdgesId().range()) {
                     if(ctx.inEdgesValue()(idx).compareTo(1) == 0 & ctx.inEdgesId()(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
                         ctx.sendMessage(ctx.inEdgesId()(idx),m);
-                            bidiVertices.put(ctx.inEdgesId()(idx),false);
                     }
                 }
                 for(idx in idsOut.range())  {
                     if(weightsOut(idx).compareTo(1) == 0 & idsOut(idx) % splitMessage == Long.implicit_operator_as(ctx.superstep())) {
-                        if(!bidiVertices.containsKey(idsOut(idx))) ctx.sendMessage(idsOut(idx),m);
+                        var bidiFound :Boolean = false;
+                        for(bidiIDX in ctx.value().bidiNeighbors.range()) {
+                            if(ctx.value().bidiNeighbors(bidiIDX)==idsOut(idx)) {
+                                bidiFound = true;
+                                break;
+                            }
+                        }
+                        if(bidiFound)continue;
+                        ctx.sendMessage(idsOut(idx),m);
                     }
                 }
                 //If its messages were not sent the previous superstep
@@ -304,15 +305,75 @@ public class LP_INF_local_recursive extends STest {
 
                 else {
                     //Load all one step neighbors
-                    var vertexData :VertexData = ctx.value();
-                    //NULL_CODE: Initialize all HashMaps
-                    for(currentEntry in vertexData.localGraph.entries()){
-                        if(currentEntry.getValue().neighbors == null){
-                             currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+                    val vertexData :VertexData = ctx.value();
+                    var LPTargetsEvidence :HashMap[Long,Evidence] = new HashMap[Long,Evidence] ();
+                    //For each message recieved
+                    for(mess in messages){
+                        val first_key = mess.id_sender;
+                        //TODO: Moving this check to the sending may slightly reduce imbalance
+                        //If the sender is myself, skip it cause I already have that information
+                        if(first_key == ctx.id()) continue;
+                        val firstStep = vertexData.localGraph(first_key)();
+                        val first_dir = firstStep.direction;
+                        val first_degree = mess.messageGraph.size();
+                        for(secondStep in mess.messageGraph.entries()){
+                            val second_key = secondStep.getKey();
+                            //If valid target !(self or direct out-neighbor)
+                            if(vertexData.localGraph.containsKey(second_key)){
+                                if(vertexData.localGraph.get(second_key)().direction > 0) continue;
+                            }
+                            if(second_key != ctx.id()){
+                                val second_dir = secondStep.getValue().direction;
+                                //If not yet added, add as target and if TP. Initialize scores
+                                if(!LPTargetsEvidence.containsKey(second_key)) {
+                                    var testFound :Boolean = false;
+                                    for(testIDX in vertexData.testCandidates.range()) {
+                                        if(vertexData.testCandidates(testIDX)==second_key) {
+                                            testFound = true;
+                                            break;
+                                        }
+                                    }
+                                    var dd :Double=0 , da :Double=0, ad:Double=0, aa:Double=0, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
+                                    if(second_dir == 0 & first_dir == 0) dd = dd+1;
+                                    else if(second_dir == 1 & first_dir == 0) da = da+1;
+                                    else if(second_dir == 1 & first_dir == 1) aa = aa+1;
+                                    else if(second_dir == 0 & first_dir == 1) ad = ad+1;
+                                    else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
+                                    else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
+                                    else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
+                                    else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
+                                    else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; da = da+1; aa = aa+1;}
+                                    cn = 1;
+                                    aa_s = (1/(Math.log(first_degree)));
+                                    ra = (Double.implicit_operator_as(1)/first_degree);
+                                    LPTargetsEvidence.put(second_key,new Evidence(testFound,dd,da,ad,aa,cn,aa_s,ra));
+//bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+testFound+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
+                                }
+                                //Else new path, increase scores
+                                else{
+                                    val evidence = LPTargetsEvidence(second_key)();
+                                    var dd :Double=evidence.DD , da :Double=evidence.DA, ad:Double=evidence.AD, aa:Double=evidence.AA, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
+                                    if(second_dir == 0 & first_dir == 0) dd = dd+1;
+                                    else if(second_dir == 1 & first_dir == 0) da = da+1;
+                                    else if(second_dir == 1 & first_dir == 1) aa = aa+1;
+                                    else if(second_dir == 0 & first_dir == 1) ad = ad+1;
+                                    else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
+                                    else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
+                                    else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
+                                    else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
+                                    else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; 
+                                                                             da = da+1; aa = aa+1;}
+                                    cn = evidence.CN_score+1;
+                                    aa_s = evidence.AA_score + (1/(Math.log(first_degree)));
+                                    ra = evidence.RA_score + (Double.implicit_operator_as(1)/first_degree);
+//bufferedPrintln("SOURCctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+evidence.TP+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
+                                    LPTargetsEvidence.put(second_key, new Evidence(evidence.TP,dd,da,ad,aa,cn,aa_s,ra));
+                                }
+                            }
                         }
                     }
-                    var LPTargetsEvidence :HashMap[Long,Evidence] = new HashMap[Long,Evidence] ();
-                    output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
+                    //Once we have all the evidence
+                    var tpsFound :Long = 0;
                     var cn_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
                     var ra_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
                     var aa_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
@@ -320,7 +381,6 @@ public class LP_INF_local_recursive extends STest {
                     var inf_log_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
                     var inf_2d_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
                     var inf_log_2d_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                    var tpsFound :Long = 0;
                     //Insert score 0 on first pos of all scores
                     cn_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
                     ra_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
@@ -329,78 +389,7 @@ public class LP_INF_local_recursive extends STest {
                     inf_log_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
                     inf_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
                     inf_log_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                    //For each message recieved
-                    for(mess in messages){
-                        val first_key = mess.id_sender;
-                        //TODO: Moving this check to the sending (ss=0) may slightly reduce imbalance
-                        //If the sender is myself, skip it cause I already have that information
-                        if(first_key == ctx.id()) continue;
-                        val  firstStep = vertexData.localGraph(first_key)();
-                        //If this vertex has not been updated yet, read all paths from its message. Avoid duplicate messages: A<--->B
-                        if(firstStep.neighbors.size()==0){
-                            val first_dir = firstStep.direction;
-                            val first_degree = mess.messageGraph.size();
-                            for(secondStep in mess.messageGraph.entries()){
-                                //TODO: Is this necessary?
-                                //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
-                                val second_key = secondStep.getKey();
-                                //If valid target !(self or direct out-neighbor)
-                                if(vertexData.localGraph.containsKey(second_key)){
-                                    if(vertexData.localGraph.get(second_key)().direction > 0) continue;
-                                }
-                                if(second_key != ctx.id()){
-                                    val second_dir = secondStep.getValue().direction;
-                                    //If not yet added, add as target and if TP. Initialize scores
-                                    if(!LPTargetsEvidence.containsKey(second_key)) {
-                                        var testFound :Boolean = false;
-                                        for(testIDX in vertexData.testCandidates.range()) {
-                                            if(vertexData.testCandidates(testIDX)==second_key) {
-                                                testFound = true;
-                                                break;
-                                            }
-                                        }
-                                        var dd :Double=0 , da :Double=0, ad:Double=0, aa:Double=0, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
-                                        if(second_dir == 0 & first_dir == 0) dd = dd+1;
-                                        else if(second_dir == 1 & first_dir == 0) da = da+1;
-                                        else if(second_dir == 1 & first_dir == 1) aa = aa+1;
-                                        else if(second_dir == 0 & first_dir == 1) ad = ad+1;
-                                        else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
-                                        else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
-                                        else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
-                                        else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
-                                        else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; da = da+1; aa = aa+1;}
-                                        cn = 1;
-                                        aa_s = (1/(Math.log(first_degree)));
-                                        ra = (Double.implicit_operator_as(1)/first_degree);
-                                        LPTargetsEvidence.put(second_key,new Evidence(testFound,dd,da,ad,aa,cn,aa_s,ra));
-//bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+testFound+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
-                                    }
-                                    //Else new path, increase scores
-                                    else{
-                                        val evidence = LPTargetsEvidence(second_key)();
-                                        var dd :Double=evidence.DD , da :Double=evidence.DA, ad:Double=evidence.AD, aa:Double=evidence.AA, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
-                                        if(second_dir == 0 & first_dir == 0) dd = dd+1;
-                                        else if(second_dir == 1 & first_dir == 0) da = da+1;
-                                        else if(second_dir == 1 & first_dir == 1) aa = aa+1;
-                                        else if(second_dir == 0 & first_dir == 1) ad = ad+1;
-                                        else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
-                                        else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
-                                        else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
-                                        else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
-                                        else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; 
-                                                                                 da = da+1; aa = aa+1;}
-                                        cn = evidence.CN_score+1;
-                                        aa_s = evidence.AA_score + (1/(Math.log(first_degree)));
-                                        ra = evidence.RA_score + (Double.implicit_operator_as(1)/first_degree);
-//bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+evidence.TP+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
-                                        LPTargetsEvidence.put(second_key, new Evidence(evidence.TP,dd,da,ad,aa,cn,aa_s,ra));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                        
-                    //Once we have all the evidence, calculate all weights
+                    //Calculate all weights
                     for(evidenceKey in LPTargetsEvidence.keySet()){ 
                         val evidence = LPTargetsEvidence(evidenceKey)();
                         if(evidence.TP) tpsFound++;
@@ -517,12 +506,10 @@ public class LP_INF_local_recursive extends STest {
                             if(evidence.TP) inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(1,0)));
                             else inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(0,1)));
                         }
-//bufferedPrintln("== "+ctx.id()+" has for weight "+INF_score+" TP:"+inf_scores.get(INF_score)().tp+" FP:"+inf_scores.get(INF_score)().fp);
                     } 
                     //Store 0 values, add unrelated TPs and FPs to the ones already found
                     val unrelatedTPsAtZero = vertexData.testCandidates.size()-tpsFound;
                     val unrelatedFPsAtZero = actualVertices - 1 - vertexData.Ancestors - unrelatedTPsAtZero - LPTargetsEvidence.size();
-//bufferedPrintln("=== "+actualVertices+" "+unrelatedTPsAtZero+" "+LPTargets.size());
                     cn_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + cn_scores(0).second.tp, unrelatedFPsAtZero + cn_scores(0).second.fp));
                     ra_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + ra_scores(0).second.tp, unrelatedFPsAtZero + ra_scores(0).second.fp));
                     aa_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + aa_scores(0).second.tp, unrelatedFPsAtZero + aa_scores(0).second.fp));
@@ -530,8 +517,8 @@ public class LP_INF_local_recursive extends STest {
                     inf_log_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_log_scores(0).second.tp, unrelatedFPsAtZero + inf_log_scores(0).second.fp));
                     inf_2d_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_2d_scores(0).second.tp, unrelatedFPsAtZero + inf_2d_scores(0).second.fp));
                     inf_log_2d_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_log_2d_scores(0).second.tp, unrelatedFPsAtZero + inf_log_2d_scores(0).second.fp));
-//bufferedPrintln("== "+ctx.id()+" has for weight 0 TP:"+cn_scores.get(0)().tp+" FP:"+cn_scores.get(0)().fp);
                     //Store for aggregate
+                    output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
                     output.add(new ScorePair("CN",cn_scores));
                     output.add(new ScorePair("RA",ra_scores));
                     output.add(new ScorePair("AA",aa_scores));
@@ -547,20 +534,76 @@ public class LP_INF_local_recursive extends STest {
             if(ctx.superstep() == splitMessage){
                 //If its messages were not sent the previous superstep
                 if(ctx.id() % splitMessage!=Long.implicit_operator_as(ctx.superstep())-1) {
-//bufferedPrintln("-Vertex :"+ctx.id()+" votes to halt in superstep:"+ctx.superstep());
                     return;
                     //Not right to halt! nodes with no incoming vertices will not be evaluated
                 }
-//bufferedPrintln("-Vertex :"+ctx.id()+" enters superstep:"+ctx.superstep());
-                //Load all one step neighbors
-                var vertexData :VertexData = ctx.value();
-                //NULL_CODE: Initialize all HashMaps
-                for(currentEntry in vertexData.localGraph.entries()){
-                    if(currentEntry.getValue().neighbors == null){
-                         currentEntry.setValue(new NeighborData(currentEntry.getValue()));
+                val vertexData :VertexData = ctx.value();
+                var LPTargetsEvidence :HashMap[Long,Evidence] = new HashMap[Long,Evidence] ();
+                //For each message recieved
+                for(mess in messages){
+                    val first_key = mess.id_sender;
+                    //TODO: Moving this check to the sending may slightly reduce imbalance
+                    //If the sender is myself, skip it cause I already have that information
+                    if(first_key == ctx.id()) continue;
+                    val firstStep = vertexData.localGraph(first_key)();
+                    val first_dir = firstStep.direction;
+                    val first_degree = mess.messageGraph.size();
+                    for(secondStep in mess.messageGraph.entries()){
+                        val second_key = secondStep.getKey();
+                        //If valid target !(self or direct out-neighbor)
+                        if(vertexData.localGraph.containsKey(second_key)){
+                            if(vertexData.localGraph.get(second_key)().direction > 0) continue;
+                        }
+                        if(second_key != ctx.id()){
+                            val second_dir = secondStep.getValue().direction;
+                            //If not yet added, add as target and if TP. Initialize scores
+                            if(!LPTargetsEvidence.containsKey(second_key)) {
+                                var testFound :Boolean = false;
+                                for(testIDX in vertexData.testCandidates.range()) {
+                                    if(vertexData.testCandidates(testIDX)==second_key) {
+                                        testFound = true;
+                                        break;
+                                    }
+                                }
+                                var dd :Double=0 , da :Double=0, ad:Double=0, aa:Double=0, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
+                                if(second_dir == 0 & first_dir == 0) dd = dd+1;
+                                else if(second_dir == 1 & first_dir == 0) da = da+1;
+                                else if(second_dir == 1 & first_dir == 1) aa = aa+1;
+                                else if(second_dir == 0 & first_dir == 1) ad = ad+1;
+                                else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
+                                else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
+                                else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
+                                else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
+                                else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; da = da+1; aa = aa+1;}
+                                cn = 1;
+                                aa_s = (1/(Math.log(first_degree)));
+                                ra = (Double.implicit_operator_as(1)/first_degree);
+                                LPTargetsEvidence.put(second_key,new Evidence(testFound,dd,da,ad,aa,cn,aa_s,ra));
+                            }
+                            //Else new path, increase scores
+                            else{
+                                val evidence = LPTargetsEvidence(second_key)();
+                                var dd :Double=evidence.DD , da :Double=evidence.DA, ad:Double=evidence.AD, aa:Double=evidence.AA, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
+                                if(second_dir == 0 & first_dir == 0) dd = dd+1;
+                                else if(second_dir == 1 & first_dir == 0) da = da+1;
+                                else if(second_dir == 1 & first_dir == 1) aa = aa+1;
+                                else if(second_dir == 0 & first_dir == 1) ad = ad+1;
+                                else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
+                                else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
+                                else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
+                                else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
+                                else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; 
+                                                                         da = da+1; aa = aa+1;}
+                                cn = evidence.CN_score+1;
+                                aa_s = evidence.AA_score + (1/(Math.log(first_degree)));
+                                ra = evidence.RA_score + (Double.implicit_operator_as(1)/first_degree);
+                                LPTargetsEvidence.put(second_key, new Evidence(evidence.TP,dd,da,ad,aa,cn,aa_s,ra));
+                            }
+                        }
                     }
                 }
-                var LPTargetsEvidence :HashMap[Long,Evidence] = new HashMap[Long,Evidence] ();
+                    
+                var tpsFound :Long = 0;
                 output :GrowableMemory[ScorePair] = new GrowableMemory[ScorePair]();
                 var cn_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
                 var ra_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
@@ -569,7 +612,6 @@ public class LP_INF_local_recursive extends STest {
                 var inf_log_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
                 var inf_2d_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
                 var inf_log_2d_scores :GrowableMemory[Pair[Double,HitRate] ] = new GrowableMemory[Pair[Double,HitRate] ]();
-                var tpsFound :Long = 0;
                 //Insert score 0 on first pos of all scores
                 cn_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
                 ra_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
@@ -578,77 +620,6 @@ public class LP_INF_local_recursive extends STest {
                 inf_log_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
                 inf_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
                 inf_log_2d_scores.add(new Pair[Double,HitRate] (0,new HitRate(0,0))); 
-                //For each message recieved
-                for(mess in messages){
-                    val first_key = mess.id_sender;
-                    //TODO: Moving this check to the sending (ss=0) may slightly reduce imbalance
-                    //If the sender is myself, skip it cause I already have that information
-                    if(first_key == ctx.id()) continue;
-                    val  firstStep = vertexData.localGraph(first_key)();
-                    //If this vertex has not been updated yet, read all paths from its message
-                    if(firstStep.neighbors.size()==0){
-                        val first_dir = firstStep.direction;
-                        val first_degree = mess.messageGraph.size();
-                        for(secondStep in mess.messageGraph.entries()){
-                            //TODO: Is this necessary?
-                            //vertexData.localGraph(messageId)().neighbors.put(newStep.getKey(),newStep.getValue());
-                            val second_key = secondStep.getKey();
-                            //If valid target !(self or direct out-neighbor)
-                            if(vertexData.localGraph.containsKey(second_key)){
-                                if(vertexData.localGraph.get(second_key)().direction > 0) continue;
-                            }
-                            if(second_key != ctx.id()){
-                                val second_dir = secondStep.getValue().direction;
-                                //If not yet added, add as target and if TP. Initialize scores
-                                if(!LPTargetsEvidence.containsKey(second_key)) {
-                                    var testFound :Boolean = false;
-                                    for(testIDX in vertexData.testCandidates.range()) {
-                                        if(vertexData.testCandidates(testIDX)==second_key) {
-                                            testFound = true;
-                                            break;
-                                        }
-                                    }
-                                    var dd :Double=0 , da :Double=0, ad:Double=0, aa:Double=0, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
-                                    if(second_dir == 0 & first_dir == 0) dd = dd+1;
-                                    else if(second_dir == 1 & first_dir == 0) da = da+1;
-                                    else if(second_dir == 1 & first_dir == 1) aa = aa+1;
-                                    else if(second_dir == 0 & first_dir == 1) ad = ad+1;
-                                    else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
-                                    else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
-                                    else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
-                                    else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
-                                    else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; da = da+1; aa = aa+1;}
-                                    cn = 1;
-                                    aa_s = (1/(Math.log(first_degree)));
-                                    ra = (Double.implicit_operator_as(1)/first_degree);
-//bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+testFound+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
-                                    LPTargetsEvidence.put(second_key,new Evidence(testFound,dd,da,ad,aa,cn,aa_s,ra));
-                                }
-                                //Else new path, increase scores
-                                else{
-                                    val evidence = LPTargetsEvidence(second_key)();
-                                    var dd :Double=evidence.DD , da :Double=evidence.DA, ad:Double=evidence.AD, aa:Double=evidence.AA, cn :Double = 0, aa_s :Double = 0, ra :Double = 0;
-                                    if(second_dir == 0 & first_dir == 0) dd = dd+1;
-                                    else if(second_dir == 1 & first_dir == 0) da = da+1;
-                                    else if(second_dir == 1 & first_dir == 1) aa = aa+1;
-                                    else if(second_dir == 0 & first_dir == 1) ad = ad+1;
-                                    else if(second_dir == 0 & first_dir == 2) {dd = dd+1; ad = ad+1;}
-                                    else if(second_dir == 1 & first_dir == 2) {da = da+1; aa = aa+1;}
-                                    else if(second_dir == 2 & first_dir == 0) {da = da+1; dd = dd+1;}
-                                    else if(second_dir == 2 & first_dir == 1) {aa = aa+1; ad = ad+1;}
-                                    else if(second_dir == 2 & first_dir == 2) {dd = dd+1; ad = ad+1; 
-                                                                             da = da+1; aa = aa+1;}
-                                    cn = evidence.CN_score+1;
-                                    aa_s = evidence.AA_score + (1/(Math.log(first_degree)));
-                                    ra = evidence.RA_score + (Double.implicit_operator_as(1)/first_degree);
-//bufferedPrintln("SOURCE:"+ctx.id()+" PATH:"+first_key+" TARGET:"+second_key+" TP:"+evidence.TP+" FistDegree:"+first_degree+" DD:"+dd+" DA:"+da+" AD:"+ad+" AA:"+aa+" CN:"+cn+" AA:"+aa+" RA:"+ra);
-                                    LPTargetsEvidence.put(second_key, new Evidence(evidence.TP,dd,da,ad,aa,cn,aa_s,ra));
-                                }
-                            }
-                        }
-                    }
-                }
-                    
                 //Once we have all the evidence, calculate all weights
                 for(evidenceKey in LPTargetsEvidence.keySet()){ 
                     val evidence = LPTargetsEvidence(evidenceKey)();
@@ -766,12 +737,10 @@ public class LP_INF_local_recursive extends STest {
                         if(evidence.TP) inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(1,0)));
                         else inf_log_2d_scores.add(new Pair[Double,HitRate] (INF_LOG_2D_score,new HitRate(0,1)));
                     }
-//bufferedPrintln("== "+ctx.id()+" has for weight "+INF_score+" TP:"+inf_scores.get(INF_score)().tp+" FP:"+inf_scores.get(INF_score)().fp);
                 } 
                 //Store 0 values, add unrelated TPs and FPs to the ones already found
                 val unrelatedTPsAtZero = vertexData.testCandidates.size()-tpsFound;
                 val unrelatedFPsAtZero = actualVertices - 1 - vertexData.Ancestors - unrelatedTPsAtZero - LPTargetsEvidence.size();
-//bufferedPrintln("=== "+actualVertices+" "+unrelatedTPsAtZero+" "+LPTargets.size());
                 cn_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + cn_scores(0).second.tp, unrelatedFPsAtZero + cn_scores(0).second.fp));
                 ra_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + ra_scores(0).second.tp, unrelatedFPsAtZero + ra_scores(0).second.fp));
                 aa_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + aa_scores(0).second.tp, unrelatedFPsAtZero + aa_scores(0).second.fp));
@@ -779,7 +748,6 @@ public class LP_INF_local_recursive extends STest {
                 inf_log_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_log_scores(0).second.tp, unrelatedFPsAtZero + inf_log_scores(0).second.fp));
                 inf_2d_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_2d_scores(0).second.tp, unrelatedFPsAtZero + inf_2d_scores(0).second.fp));
                 inf_log_2d_scores(0) = new Pair[Double,HitRate] (0,new HitRate(unrelatedTPsAtZero + inf_log_2d_scores(0).second.tp, unrelatedFPsAtZero + inf_log_2d_scores(0).second.fp));
-//bufferedPrintln("== "+ctx.id()+" has for weight 0 TP:"+cn_scores.get(0)().tp+" FP:"+cn_scores.get(0)().fp);
                 //Store for aggregate
                 output.add(new ScorePair("CN",cn_scores));
                 output.add(new ScorePair("RA",ra_scores));
