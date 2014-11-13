@@ -1,0 +1,25 @@
+allocnode -g t2gcresteu -n 2 -w 1 -q S
+
+cp $PBS_NODEFILE hostfile
+
+x10c++ -x10rt mpi -make -make-arg -j -J-Xmx2000m -sourcepath /home/usr1/13D38019/scalegraph/2.2.1/src/scalegraph/src/ -cxx-prearg -I/home/usr1/13D38019/scalegraph/2.2.1/src/scalegraph/include -O LP_INF_local_recursive.x10 -o LP_INF_local_recursive
+
+x10c++ -x10rt mpi -make -make-arg -j -J-Xmx2000m -sourcepath /home/usr1/13D38019/scalegraph/2.2.1/src/scalegraph/src/ -cxx-prearg -I/home/usr1/13D38019/scalegraph/2.2.1/src/scalegraph/include LP_INF_local_recursive.x10 -o LP_INF_local_recursive
+
+
+
+
+
+x10c++ -x10rt mpi -make -make-arg -j -J-Xmx2000m -sourcepath /home/usr1/13D38019/scalegraph/2.2.1/src/scalegraph/src/ -cxx-prearg -I/home/usr1/13D38019/scalegraph/2.2.1/mvapich2-1.9/library/include -O LP_INF_local_recursive.x10 -o LP_INF_local_recursive
+
+x10c++ -x10rt mpi -x10lib /home/usr1/13D38019/scalegraph/2.2.1/mvapich2-1.9/library/ScaleGraph.properties ./LP_INF_local_recursive.x10
+
+X10_NTHREADS=6 GC_NPROCS=6 mpirun -n 2 -hostfile hostfile ./LP_INF_local_recursive test_graph 2>&1 | tee log_file 
+
+t2stat
+
+t2del jobid
+
+t2del -W force jobId
+
+
