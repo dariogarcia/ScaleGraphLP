@@ -102,21 +102,21 @@ public class LP_INF_local_recursive extends STest {
         
     public static struct Message{
         val id_sender:Long;
-        val messageGraph :HashMap[Long,x10.lang.Int];
-        public def this(i: Long, n :HashMap[Long,x10.lang.Int]){
+        val messageGraph :GrowableMemory[Pair[Long,x10.lang.Int]];
+        public def this(i: Long, n :GrowableMemory[Pair[Long,x10.lang.Int]]){
             id_sender = i;
             messageGraph = n;
         }
     }
 
     public static struct VertexData{
-        val localGraph :HashMap[Long,x10.lang.Int];
+        val localGraph :GrowableMemory[Pair[Long,x10.lang.Int]];
         val bidiNeighbors :GrowableMemory[Long];
         val testCandidates: GrowableMemory[Long];
         val Descendants: Long;
         val Ancestors: Long;
         val last_data: GrowableMemory[ScorePair];
-        public def this(test: GrowableMemory[Long], st :HashMap[Long,x10.lang.Int], d: Long, a: Long, bidi :GrowableMemory[Long]){
+        public def this(test: GrowableMemory[Long], st :GrowableMemory[Pair[Long,x10.lang.Int]], d: Long, a: Long, bidi :GrowableMemory[Long]){
             localGraph = st;
             testCandidates = test;
             Descendants = d;
@@ -126,7 +126,7 @@ public class LP_INF_local_recursive extends STest {
         }
         //Constructor before return
         public def this(last: GrowableMemory[ScorePair]){
-            localGraph = new HashMap[Long,x10.lang.Int]();
+            localGraph = new GrowableMemory[Pair[Long,x10.lang.Int]]();
             testCandidates = new GrowableMemory[Long]();
             Descendants = 0;
             Ancestors = 0;
@@ -136,7 +136,7 @@ public class LP_INF_local_recursive extends STest {
         //Constructor used for empty return of disconnected vertices
         public def this(){
             //Direction determines if node is descendant (0, a vertex pointing to self) or ancestor (1, a vertex self points to). 2 means both
-            localGraph = new HashMap[Long,x10.lang.Int]();
+            localGraph = new GrowableMemory[Pair[Long,x10.lang.Int]]();
             Descendants = 0;
             Ancestors = 0;
             last_data = new GrowableMemory[ScorePair]();
@@ -179,7 +179,7 @@ public class LP_INF_local_recursive extends STest {
             //first superstep, create all vertex with in-edges as path with one step: <0,Id>
 	        //and all out-edges as path with one step: <1,Id>. Also, send paths to all vertices
             if(ctx.superstep() == 0){
-                var localGraph :HashMap[Long,x10.lang.Int] = new HashMap[Long,x10.lang.Int]();
+                var localGraph :GrowableMemory[Pair[Long,x10.lang.Int]] = new GrowableMemory[Pair[Long,x10.lang.Int]]();
                 var ancestors :Long = 0; var descendants :Long = 0;
                 //Load all outgoing edges of vertex
                 val tupleOut = ctx.outEdges();
@@ -193,8 +193,15 @@ public class LP_INF_local_recursive extends STest {
                 for(idx in weightsOut.range()) {
                     //If the vertex is connected through an edge with weight = 1 (train edge), add the vertex to list of neighbors
                     if(weightsOut(idx).compareTo(1) == 0){
-                        if(!localGraph.containsKey(idsOut(idx))){
-                            localGraph.put(idsOut(idx),1);
+                        var localFound :Boolean = false;
+                        for(localIDX in localGraph.range()){
+                            if(localGraph(localIDX).first==idsOut(idx)) {
+                                localFound = true;
+                                break;
+                            }
+                        }
+                        if(!localFound){
+                            localGraph.add(new Pair[Long,x10.lang.Int] (idsOut(idx),1));
                             ancestors++;
                         }
                     }
@@ -205,15 +212,22 @@ public class LP_INF_local_recursive extends STest {
                 for(idx in ctx.inEdgesValue().range()) {
                     //If the vertex is connected through an edge with weight = 1, add the vertex to list of neighbors
                     if(ctx.inEdgesValue()(idx).compareTo(1) == 0){
-                        if(localGraph.containsKey(ctx.inEdgesId()(idx))){
-                            if(localGraph.get(ctx.inEdgesId()(idx))() == 1){
-                                localGraph.put(ctx.inEdgesId()(idx),2);
-                                descendants++;
-                                bidiVertices.add(ctx.inEdgesId()(idx));
+                        var localFound :Boolean = false;
+                        var localVal :x10.lang.Int = -1;
+                        for(localIDX in localGraph.range()){
+                            if(localGraph(localIDX).first==ctx.inEdgesId()(idx)){
+                                localFound = true;
+                                localVal = localGraph(localIDX).second;
+                                break;
                             }
                         }
-                        if(!localGraph.containsKey(ctx.inEdgesId()(idx))){
-                            localGraph.put(ctx.inEdgesId()(idx),0);
+                        if(localFound & localVal == 1){
+                            localGraph.add(new Pair[Long,x10.lang.Int] (ctx.inEdgesId()(idx),2));
+                            descendants++;
+                            bidiVertices.add(ctx.inEdgesId()(idx));
+                        }
+                        if(!localFound){
+                            localGraph.add(new Pair[Long,x10.lang.Int] (ctx.inEdgesId()(idx),0));
                             descendants++;
                         }
                     }
@@ -291,16 +305,28 @@ public class LP_INF_local_recursive extends STest {
                         //TODO: Moving this check to the sending may slightly reduce imbalance
                         //If the sender is myself, skip it cause I already have that information
                         if(first_key == ctx.id()) continue;
-                        val first_dir = vertexData.localGraph(first_key)();
-                        val first_degree = mess.messageGraph.size();
-                        for(secondStep in mess.messageGraph.entries()){
-                            val second_key = secondStep.getKey();
-                            //If valid target !(self or direct out-neighbor)
-                            if(vertexData.localGraph.containsKey(second_key)){
-                                if(vertexData.localGraph.get(second_key)() > 0) continue;
+                        var first_dir :x10.lang.Int = -1;
+                        for(firstIDX in vertexData.localGraph.range()){
+                            if(vertexData.localGraph(firstIDX).first == first_key) {
+                                first_dir = vertexData.localGraph(firstIDX).second;
+                                break;
                             }
+                        }
+                        val first_degree = mess.messageGraph.size();
+                        for(secondIDX in mess.messageGraph.range()){
+                            val secondStep = mess.messageGraph(secondIDX);
+                            val second_key = secondStep.first;
+                            //If valid target !(self or direct out-neighbor)
+                            var dirSec :x10.lang.Int = -1;
+                            for(foundIDX in vertexData.localGraph.range()){
+                                if(vertexData.localGraph(foundIDX).first == second_key){
+                                    dirSec = vertexData.localGraph(foundIDX).second;
+                                    break;
+                                }
+                            }
+                            if(dirSec > 0) continue;
                             if(second_key != ctx.id()){
-                                val second_dir = secondStep.getValue();
+                                val second_dir = secondStep.second;
                                 //If not yet added, add as target and if TP. Initialize scores
                                 if(!LPTargetsEvidence.containsKey(second_key)) {
                                     var testFound :Boolean = false;
@@ -522,16 +548,28 @@ public class LP_INF_local_recursive extends STest {
                     //TODO: Moving this check to the sending may slightly reduce imbalance
                     //If the sender is myself, skip it cause I already have that information
                     if(first_key == ctx.id()) continue;
-                    val first_dir = vertexData.localGraph(first_key)();
-                    val first_degree = mess.messageGraph.size();
-                    for(secondStep in mess.messageGraph.entries()){
-                        val second_key = secondStep.getKey();
-                        //If valid target !(self or direct out-neighbor)
-                        if(vertexData.localGraph.containsKey(second_key)){
-                            if(vertexData.localGraph.get(second_key)() > 0) continue;
+                    var first_dir :x10.lang.Int = -1;
+                    for(firstIDX in vertexData.localGraph.range()){
+                        if(vertexData.localGraph(firstIDX).first == first_key) {
+                            first_dir = vertexData.localGraph(firstIDX).second;
+                            break;
                         }
+                    }
+                    val first_degree = mess.messageGraph.size();
+                    for(secondIDX in mess.messageGraph.range()){
+                        val secondStep = mess.messageGraph(secondIDX);
+                        val second_key = secondStep.first;
+                        //If valid target !(self or direct out-neighbor)
+                        var dirSec :x10.lang.Int = -1;
+                        for(foundIDX in vertexData.localGraph.range()){
+                            if(vertexData.localGraph(foundIDX).first == second_key){
+                                dirSec = vertexData.localGraph(foundIDX).second;
+                                break;
+                            }
+                        }
+                        if(dirSec > 0) continue;
                         if(second_key != ctx.id()){
-                            val second_dir = secondStep.getValue();
+                            val second_dir = secondStep.second;
                             //If not yet added, add as target and if TP. Initialize scores
                             if(!LPTargetsEvidence.containsKey(second_key)) {
                                 var testFound :Boolean = false;
