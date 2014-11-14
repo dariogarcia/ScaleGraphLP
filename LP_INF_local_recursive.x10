@@ -193,6 +193,7 @@ public class LP_INF_local_recursive extends STest {
                 for(idx in weightsOut.range()) {
                     //If the vertex is connected through an edge with weight = 1 (train edge), add the vertex to list of neighbors
                     if(weightsOut(idx).compareTo(1) == 0){
+                        //Avoid repeated edges
                         var localFound :Boolean = false;
                         for(localIDX in localGraph.range()){
                             if(localGraph(localIDX).first==idsOut(idx)) {
@@ -214,15 +215,17 @@ public class LP_INF_local_recursive extends STest {
                     if(ctx.inEdgesValue()(idx).compareTo(1) == 0){
                         var localFound :Boolean = false;
                         var localVal :x10.lang.Int = -1;
+                        var localIDXFound :Long = -1;
                         for(localIDX in localGraph.range()){
                             if(localGraph(localIDX).first==ctx.inEdgesId()(idx)){
                                 localFound = true;
                                 localVal = localGraph(localIDX).second;
+                                localIDXFound = localIDX;
                                 break;
                             }
                         }
                         if(localFound & localVal == 1){
-                            localGraph.add(new Pair[Long,x10.lang.Int] (ctx.inEdgesId()(idx),2));
+                            localGraph(localIDXFound) = new Pair[Long,x10.lang.Int] (ctx.inEdgesId()(idx),2);
                             descendants++;
                             bidiVertices.add(ctx.inEdgesId()(idx));
                         }
@@ -305,6 +308,7 @@ public class LP_INF_local_recursive extends STest {
                         //TODO: Moving this check to the sending may slightly reduce imbalance
                         //If the sender is myself, skip it cause I already have that information
                         if(first_key == ctx.id()) continue;
+                        //TODO could this be optimized if the info was sent in the message? Would require adding another bidi loop!
                         var first_dir :x10.lang.Int = -1;
                         for(firstIDX in vertexData.localGraph.range()){
                             if(vertexData.localGraph(firstIDX).first == first_key) {
