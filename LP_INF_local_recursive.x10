@@ -70,8 +70,8 @@ public class LP_INF_local_recursive extends STest {
                 AD = ad;
                 AA = aa;
                 CN_score = cn;
-                AA_score = Double.implicit_operator_as(x10.lang.Int.operator_as(aa_s*1000)/1000);
-                RA_score = Double.implicit_operator_as(x10.lang.Int.operator_as(ra*1000)/1000);
+                AA_score = Double.implicit_operator_as(x10.lang.Int.operator_as(aa_s*1000))/1000;
+                RA_score = Double.implicit_operator_as(x10.lang.Int.operator_as(ra*1000))/1000;
             }
     }
 
@@ -412,10 +412,10 @@ public class LP_INF_local_recursive extends STest {
                                 INF_LOG_2D_score = ind_score*Math.log10(vertexData.Descendants);
                             }
                         }
-                        val INF_score = Double.implicit_operator_as(x10.lang.Int.operator_as((ded_score + ind_score)*1000)/1000);
-                        val INF_2D_score = Double.implicit_operator_as(x10.lang.Int.operator_as(((ded_score*2) + ind_score)*1000)/1000);
-                        INF_LOG_score = Double.implicit_operator_as(x10.lang.Int.operator_as((INF_LOG_score)*1000)/1000);
-                        INF_LOG_2D_score = Double.implicit_operator_as(x10.lang.Int.operator_as((INF_LOG_2D_score)*1000)/1000);
+                        val INF_score = Double.implicit_operator_as(x10.lang.Int.operator_as((ded_score + ind_score)*1000))/1000;
+                        val INF_2D_score = Double.implicit_operator_as(x10.lang.Int.operator_as(((ded_score*2) + ind_score)*1000))/1000;
+                        INF_LOG_score = Double.implicit_operator_as(x10.lang.Int.operator_as(INF_LOG_score*1000))/1000;
+                        INF_LOG_2D_score = Double.implicit_operator_as(x10.lang.Int.operator_as(INF_LOG_2D_score*1000))/1000;
                         //Store values
                         var found :Boolean = false;
                         for(scoreIDX in cn_scores.range()){
@@ -645,10 +645,10 @@ public class LP_INF_local_recursive extends STest {
                             INF_LOG_2D_score = ind_score*Math.log10(vertexData.Descendants);
                         }
                     }
-                    val INF_score = Double.implicit_operator_as(x10.lang.Int.operator_as((ded_score + ind_score)*1000)/1000);
-                    val INF_2D_score = Double.implicit_operator_as(x10.lang.Int.operator_as(((ded_score*2) + ind_score)*1000)/1000);
-                    INF_LOG_score = Double.implicit_operator_as(x10.lang.Int.operator_as((INF_LOG_score)*1000)/1000);
-                    INF_LOG_2D_score = Double.implicit_operator_as(x10.lang.Int.operator_as((INF_LOG_2D_score)*1000)/1000);
+                    val INF_score = Double.implicit_operator_as(x10.lang.Int.operator_as((ded_score + ind_score)*1000))/1000;
+                    val INF_2D_score = Double.implicit_operator_as(x10.lang.Int.operator_as(((ded_score*2) + ind_score)*1000))/1000;
+                    INF_LOG_score = Double.implicit_operator_as(x10.lang.Int.operator_as(INF_LOG_score*1000))/1000;
+                    INF_LOG_2D_score = Double.implicit_operator_as(x10.lang.Int.operator_as(INF_LOG_2D_score*1000))/1000;
                     //Store values
                     var found :Boolean = false;
                     for(scoreIDX in cn_scores.range()){
